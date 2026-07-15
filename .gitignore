@@ -1,0 +1,4 @@
+.example-build/
+build/
+*.pkg.tar.*
+tests/fixtures/hello-archive/upstream.tar.gz
