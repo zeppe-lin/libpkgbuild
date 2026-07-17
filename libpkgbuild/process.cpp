@@ -190,6 +190,17 @@ std::optional<ChildFailure> read_child_failure(int fd)
 
 void validate_execution_policy(const ExecutionPolicy& policy)
 {
+    if ((policy.file_creation_mask & ~0777) != 0)
+        throw Error(ErrorCode::invalid_configuration,
+                    "build umask contains unsupported bits");
+    for (const auto& [name, value] : policy.environment) {
+        if (name.empty() || name.find('=') != std::string::npos ||
+            name.find('\0') != std::string::npos ||
+            value.find('\0') != std::string::npos)
+            throw Error(ErrorCode::invalid_configuration,
+                        "invalid build environment entry");
+    }
+
     if (!policy.identity) {
         if (geteuid() == 0)
             throw Error(ErrorCode::invalid_configuration,

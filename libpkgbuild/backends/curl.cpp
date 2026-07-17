@@ -60,7 +60,7 @@ CURLcode perform(const DownloadRequest& request,
     curl_easy_setopt(handle.get(), CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(handle.get(), CURLOPT_WRITEFUNCTION, &write_file);
     curl_easy_setopt(handle.get(), CURLOPT_WRITEDATA, output.get());
-    curl_easy_setopt(handle.get(), CURLOPT_USERAGENT, "libpkgbuild/0");
+    curl_easy_setopt(handle.get(), CURLOPT_USERAGENT, "libpkgbuild/0.2");
 
     if (resume) {
         const auto offset = std::filesystem::file_size(partial);

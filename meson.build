@@ -1,7 +1,7 @@
 project(
-  'pkgmk',
+  'libpkgbuild',
   'cpp',
-  version: '6.0.0-dev',
+  version: '0.2.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.2.0',
   default_options: [
@@ -38,7 +38,7 @@ libpkgbuild = library(
   sources,
   include_directories: inc,
   dependencies: [libarchive_dep, libcurl_dep],
-  version: '0.1.0',
+  version: meson.project_version(),
   soversion: '0',
   install: true,
 )
@@ -80,3 +80,5 @@ executable(
   cpp_args: helper_define,
   install: false,
 )
+
+subdir('tests')
