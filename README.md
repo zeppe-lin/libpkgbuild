@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.6.0
+LIBPKGBUILD 0.7.0
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -98,6 +98,25 @@ mismatch throws FootprintMismatch carrying the complete structured
 difference before archive creation; a write policy must be requested
 explicitly and is recorded in BuildReceipt::footprint.
 
+Differential parity model
+-------------------------
+
+The optional parity tools use libpkgimage 0.2.1 or later without adding
+libpkgimage to the libpkgbuild runtime dependency closure.
+`pkgbuild-archive-compare` compares normalized archive semantics and
+SHA-256 payload hashes while ignoring archive order, timestamps, and the
+choice of hard-link target member.  `pkgbuild-parity` builds every
+Pkgfile case in an isolated corpus with both production pkgmk and the
+reference libpkgbuild frontend, then fails on any semantic difference or
+package filename identity mismatch.
+
+The runner executes pkgmk under fakeroot and applies the same explicit
+non-root build identity used by the candidate build.  It creates a
+private per-run workspace and never mutates the corpus.  The initial
+corpus covers regular metadata, numeric ownership, symbolic and hard
+links, manual-page normalization, FIFOs, and device nodes.  See
+`PARITY.md` for command syntax and comparison rules.
+
 Staged metadata model
 ---------------------
 
@@ -145,6 +164,7 @@ Implemented
 * POSIX-BRE `.nostrip` normalization for Pkgfile definitions.
 * Deterministic, hardlink-safe manual-page compression and symlink rewrite.
 * Normalized footprint generation, legacy manifest parsing, comparison, and atomic replacement.
+* libpkgimage-based semantic archive comparison and pkgmk differential corpus runner.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
 * Virtual ownership, symlink, hardlink, FIFO, and device-node archive
