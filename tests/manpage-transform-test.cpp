@@ -84,6 +84,11 @@ int main()
                 "cannot create man page hardlink");
         require(symlink("tool.1", (man / "tool-link.1").c_str()) == 0,
                 "cannot create man page symlink");
+        const auto doc = root / "usr/share/doc";
+        std::filesystem::create_directories(doc);
+        std::ofstream(man / "mixed.1") << "mixed payload\n";
+        require(link((man / "mixed.1").c_str(), (doc / "mixed").c_str()) == 0,
+                "cannot create mixed hardlink group");
 
         auto package = pkgbuild::scan_staged_package(root);
         pkgbuild::PosixProcessExecutor processes;
@@ -128,6 +133,10 @@ int main()
                 "staged symlink target was not rewritten");
         require(receipt.changes.size() == 2,
                 "unexpected man page transformation receipt");
+        require(std::filesystem::exists(man / "mixed.1") &&
+                    std::filesystem::exists(doc / "mixed") &&
+                    !std::filesystem::exists(man / "mixed.1.gz"),
+                "mixed hardlink group was transformed");
 
         std::ifstream gzip(man / "tool.1.gz", std::ios::binary);
         unsigned char header[8] {};

@@ -1,6 +1,7 @@
 #include <pkgbuild/backends/normalize.hpp>
 #include <pkgbuild/backends/posix.hpp>
 #include <pkgbuild/stage.hpp>
+#include <pkgbuild/error.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -24,6 +25,19 @@ void require(bool condition, const std::string& message)
 {
     if (!condition)
         fail(message);
+}
+
+template<typename Function>
+void require_transformation_error(Function function)
+{
+    try {
+        function();
+    } catch (const pkgbuild::Error& error) {
+        require(error.code() == pkgbuild::ErrorCode::transformation_failed,
+                "unexpected transformation error code");
+        return;
+    }
+    fail("expected transformation failure");
 }
 
 std::filesystem::path temporary_directory()
@@ -105,8 +119,12 @@ int main(int argc, char** argv)
         require(link((bin / "tool").c_str(), (bin / "tool-alias").c_str()) == 0,
                 "cannot create binary hardlink");
         std::filesystem::copy_file("/proc/self/exe", bin / "keep");
+        const auto lib = root / "usr/lib";
+        std::filesystem::create_directories(lib);
+        std::ofstream(lib / "thin.a", std::ios::binary) << "!<thin>\nexternal.o/\n";
 
         const auto keep_before = read_file(bin / "keep");
+        const auto thin_before = read_file(lib / "thin.a");
         const auto size_before = std::filesystem::file_size(bin / "tool");
         auto package = pkgbuild::scan_staged_package(root);
 
@@ -133,6 +151,8 @@ int main(int argc, char** argv)
         require(size_after < size_before, "binary was not stripped");
         require(read_file(bin / "keep") == keep_before,
                 "excluded binary was changed");
+        require(read_file(lib / "thin.a") == thin_before,
+                "thin archive crossed the staged-tree boundary");
 
         struct stat primary {};
         struct stat alias {};
@@ -160,6 +180,43 @@ int main(int argc, char** argv)
             require(item.path().filename().string().rfind(".pkgbuild-", 0) != 0,
                     "strip temporary or backup leaked into package tree");
         }
+
+        const auto rollback = root / "rollback";
+        std::filesystem::create_directories(rollback / "usr/bin");
+        std::filesystem::copy_file("/proc/self/exe", rollback / "usr/bin/tool");
+        require(link((rollback / "usr/bin/tool").c_str(),
+                     (rollback / "usr/bin/tool-alias").c_str()) == 0,
+                "cannot create rollback hardlink");
+        if (execution.identity)
+            assign_tree(rollback, *execution.identity);
+        const auto rollback_before = read_file(rollback / "usr/bin/tool");
+        auto rollback_package = pkgbuild::scan_staged_package(rollback);
+        pkgbuild::PackageTreeTransformer failing("/bin/false", processes);
+        require_transformation_error([&] {
+            (void)failing.transform(pkgbuild::PackageTransformRequest{
+                rollback_package, pkgbuild::PackageDefinition{}, policy,
+                execution}, events);
+        });
+        require(read_file(rollback / "usr/bin/tool") == rollback_before,
+                "failed strip changed the original payload");
+        struct stat rollback_primary {};
+        struct stat rollback_alias {};
+        require(lstat((rollback / "usr/bin/tool").c_str(), &rollback_primary) == 0 &&
+                    lstat((rollback / "usr/bin/tool-alias").c_str(),
+                          &rollback_alias) == 0,
+                "failed strip removed a hardlink member");
+        require(rollback_primary.st_ino == rollback_alias.st_ino,
+                "failed strip fractured the original hardlink group");
+
+        auto disabled_package = pkgbuild::scan_staged_package(rollback);
+        auto disabled = policy;
+        disabled.strip_binaries = false;
+        const auto disabled_receipt = transformer.transform(
+            pkgbuild::PackageTransformRequest{
+                disabled_package, pkgbuild::PackageDefinition{}, disabled,
+                execution}, events);
+        require(disabled_receipt.changes.empty(),
+                "disabled stripping produced transformations");
 
         std::filesystem::remove_all(root);
         std::cout << "binary transformation: PASS\n";

@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.4.0
+LIBPKGBUILD 0.5.0
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -51,6 +51,31 @@ MD5 remains suitable only for legacy accidental-corruption detection;
 it is not a malicious-content authentication mechanism.  Stronger
 digest algorithms are available to non-Pkgfile definition backends.
 
+Package normalization model
+---------------------------
+
+After recipe execution, libpkgbuild applies trusted transformations to
+the staged package before the workspace is sealed and before archive
+creation.  Transformations mutate both the payload tree and its
+StagedPackage manifest and return structured receipts through
+`BuildReceipt::transformations`.
+
+The package-tree backend currently strips ELF executables, ELF shared
+objects, and ar archives.  A hardlink group is transformed once through
+a private copy, then every pathname is replaced and relinked to the
+transformed inode.  Stripping therefore cannot silently split hardlinks.
+Legacy `.nostrip` files are normalized as POSIX basic regular expressions;
+if any pathname in a hardlink group is excluded, the entire group is
+left unchanged.
+
+Manual pages beneath `*/man/man*/*` are compressed with deterministic
+gzip headers.  Hardlinked manual pages are compressed once and recreated
+as a hardlink group with `.gz` names.  Relative and absolute manual-page
+symlinks are renamed and retargeted only when their referenced payload
+was actually compressed.  A hardlink group spanning manual-page and
+non-manual locations is preserved unchanged rather than having its
+identity fractured.
+
 Staged metadata model
 ---------------------
 
@@ -76,9 +101,10 @@ The base may not be `/`, a symbolic link, or the same directory as the
 recipe, source cache, or package output directory.  A retained
 workspace is returned as `BuildReceipt::work_directory`.
 
-After a root orchestrator receives the staged manifest, the workspace
-root is returned to root ownership and mode 0700 before payload archive
-creation.  This closes the build identity out of the handoff path.
+After a root orchestrator receives the staged manifest and trusted
+normalization completes, the workspace root is returned to root ownership
+and mode 0700 before payload archive creation.  This closes the build
+identity out of the handoff path.
 
 Implemented
 -----------
@@ -92,20 +118,23 @@ Implemented
 * Downloader abstraction with a libcurl implementation.
 * Typed source digests and descriptor-stable OpenSSL verification.
 * Strict legacy `.md5sum` normalization for Pkgfile definitions.
+* Structured package-tree transformation contracts and receipts.
+* Hardlink-safe ELF, shared-object, and ar archive stripping.
+* POSIX-BRE `.nostrip` normalization for Pkgfile definitions.
+* Deterministic, hardlink-safe manual-page compression and symlink rewrite.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
 * Virtual ownership, symlink, hardlink, FIFO, and device-node archive
   metadata.
 * Private per-build workspaces.
 * Structured BuildReceipt with exact artifact identity.
-* Offline integration, execution-hardening, metadata, and archive
-  integrity tests.
+* Offline integration, execution-hardening, metadata, archive-integrity,
+  transformation rollback, and normalization pipeline tests.
 
 Not implemented yet
 -------------------
 
 * Footprint generation and checking.
-* Binary stripping and manual-page compression.
 * Source mirrors.
 * Up-to-date checks and force policy.
 * Historical pkgmk CLI compatibility.

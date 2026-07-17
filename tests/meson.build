@@ -97,3 +97,21 @@ test(
   strip_transform_test,
   args: [strip_program.full_path()],
 )
+
+normalization_pipeline_test = executable(
+  'normalization-pipeline-test',
+  'normalization-pipeline-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test(
+  'package normalization pipeline',
+  normalization_pipeline_test,
+  args: [
+    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    stage_scanner,
+    fakeroot_program.full_path(),
+    strip_program.full_path(),
+  ],
+)
