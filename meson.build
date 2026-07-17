@@ -15,6 +15,13 @@ libcurl_dep = dependency('libcurl', required: true)
 libcrypto_dep = dependency('libcrypto', required: true)
 zlib_dep = dependency('zlib', required: true)
 
+parity_option = get_option('parity')
+libpkgimage_dep = dependency(
+  'libpkgimage',
+  version: '>=0.2.1',
+  required: parity_option,
+)
+
 pkgfile_helper = join_paths(
   get_option('prefix'),
   get_option('libexecdir'),
@@ -103,3 +110,18 @@ executable(
 )
 
 subdir('tests')
+
+
+if libpkgimage_dep.found()
+  parity_compare_sources = files(
+    'tools/parity/archive_compare.cpp',
+  )
+
+  executable(
+    'pkgbuild-archive-compare',
+    ['tools/pkgbuild-archive-compare.cpp', parity_compare_sources],
+    include_directories: include_directories('tools'),
+    dependencies: [libpkgimage_dep, libcrypto_dep],
+    install: false,
+  )
+endif

@@ -1,0 +1,6 @@
+option(
+  'parity',
+  type: 'feature',
+  value: 'auto',
+  description: 'build libpkgimage-based package parity tools',
+)
