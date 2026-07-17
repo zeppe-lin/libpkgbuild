@@ -30,6 +30,18 @@ std::string to_string(Compression compression)
     throw Error(ErrorCode::invalid_configuration, "unknown compression mode");
 }
 
+
+std::string to_string(DigestAlgorithm algorithm)
+{
+    switch (algorithm) {
+    case DigestAlgorithm::md5: return "md5";
+    case DigestAlgorithm::sha256: return "sha256";
+    case DigestAlgorithm::sha512: return "sha512";
+    case DigestAlgorithm::blake2b512: return "blake2b512";
+    }
+    throw Error(ErrorCode::invalid_configuration, "unknown digest algorithm");
+}
+
 ArchiveFormat archive_format_from_string(const std::string& value)
 {
     if (value == "gnutar") return ArchiveFormat::gnutar;

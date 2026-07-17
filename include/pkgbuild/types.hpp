@@ -32,6 +32,18 @@ enum class Compression {
     zstd,
 };
 
+enum class DigestAlgorithm {
+    md5,
+    sha256,
+    sha512,
+    blake2b512,
+};
+
+struct Digest {
+    DigestAlgorithm algorithm{DigestAlgorithm::sha256};
+    std::string hexadecimal;
+};
+
 struct ArchiveSpec {
     ArchiveFormat format{ArchiveFormat::gnutar};
     Compression compression{Compression::gzip};
@@ -47,6 +59,7 @@ struct Source {
     std::string declaration;
     std::optional<std::string> uri;
     std::filesystem::path local_name;
+    std::vector<Digest> digests;
 };
 
 struct Recipe {
@@ -107,6 +120,12 @@ struct DownloadReceipt {
     std::filesystem::path destination;
     std::uintmax_t bytes_written{0};
     bool resumed{false};
+};
+
+struct VerificationReceipt {
+    std::filesystem::path source;
+    Digest expected;
+    std::string observed;
 };
 
 struct ExtractRequest {
@@ -182,6 +201,7 @@ struct BuildReceipt {
 
 std::string to_string(ArchiveFormat format);
 std::string to_string(Compression compression);
+std::string to_string(DigestAlgorithm algorithm);
 ArchiveFormat archive_format_from_string(const std::string& value);
 Compression compression_from_string(const std::string& value);
 std::string package_extension(const ArchiveSpec& archive);

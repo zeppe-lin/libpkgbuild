@@ -1,6 +1,7 @@
 #pragma once
 
 #include <pkgbuild/event.hpp>
+#include <pkgbuild/source.hpp>
 #include <pkgbuild/types.hpp>
 
 #include <string_view>
@@ -21,6 +22,18 @@ public:
     virtual std::string_view name() const noexcept = 0;
     virtual DownloadReceipt fetch(const DownloadRequest& request,
                                   EventSink& events) const = 0;
+};
+
+class SourceVerifier {
+public:
+    virtual ~SourceVerifier() = default;
+    virtual std::string_view name() const noexcept = 0;
+    virtual VerifiedSource verify(
+        const std::filesystem::path& source,
+        const std::vector<Digest>& digests,
+        EventSink& events) const = 0;
+    virtual void revalidate(const VerifiedSource& source,
+                            EventSink& events) const = 0;
 };
 
 class SourceExtractor {
