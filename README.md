@@ -107,8 +107,9 @@ libpkgimage to the libpkgbuild runtime dependency closure.
 SHA-256 payload hashes while ignoring archive order, timestamps, and the
 choice of hard-link target member.  `pkgbuild-parity` builds every
 Pkgfile case in an isolated corpus with both production pkgmk and the
-reference libpkgbuild frontend, then fails on any semantic difference or
-package filename identity mismatch.
+reference libpkgbuild frontend.  Corpus case directory basenames are
+preserved and must match the Pkgfile package name.  The runner fails on
+any semantic difference or package filename identity mismatch.
 
 The runner executes pkgmk under fakeroot and applies the same explicit
 non-root build identity used by the candidate build.  It creates a

@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+if [ "$(basename "$PWD")" != fake ]; then
+    echo "fake-pkgmk: recipe basename is not package name" >&2
+    exit 2
+fi
+
 config=
 while [ "$#" -gt 0 ]; do
     case $1 in

@@ -8,13 +8,13 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/pkgbuild-parity-runner.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 chmod 0755 "$work"
 
-mkdir -p "$work/equal/case" "$work/different/case" "$work/identity/case"
+mkdir -p "$work/equal/fake" "$work/different/fake" "$work/identity/fake"
 printf '%s\n' 'name=fake' 'version=1.0' 'release=1' 'build() { :; }' \
-    > "$work/equal/case/Pkgfile"
-cp "$work/equal/case/Pkgfile" "$work/different/case/Pkgfile"
-cp "$work/equal/case/Pkgfile" "$work/identity/case/Pkgfile"
-: > "$work/different/case/candidate-different"
-: > "$work/identity/case/candidate-name-different"
+    > "$work/equal/fake/Pkgfile"
+cp "$work/equal/fake/Pkgfile" "$work/different/fake/Pkgfile"
+cp "$work/equal/fake/Pkgfile" "$work/identity/fake/Pkgfile"
+: > "$work/different/fake/candidate-different"
+: > "$work/identity/fake/candidate-name-different"
 
 identity=
 if [ "$(id -u)" -eq 0 ]; then
@@ -33,7 +33,7 @@ fi
     --work-dir "$work/run-equal" \
     $identity \
     "$work/equal" \
-    | grep -q '^PASS case$'
+    | grep -q '^PASS fake$'
 
 set +e
 # shellcheck disable=SC2086
@@ -51,7 +51,7 @@ status=$?
 set -e
 
 test "$status" -eq 1
-printf '%s\n' "$output" | grep -q '^FAIL case$'
+printf '%s\n' "$output" | grep -q '^FAIL fake$'
 printf '%s\n' "$output" | grep -q 'payload-sha256'
 
 set +e
@@ -70,7 +70,7 @@ identity_status=$?
 set -e
 
 test "$identity_status" -eq 1
-printf '%s\n' "$identity_output" | grep -q '^FAIL case$'
+printf '%s\n' "$identity_output" | grep -q '^FAIL fake$'
 printf '%s\n' "$identity_output" | grep -q 'package-filename'
 
 echo 'parity corpus runner: PASS'

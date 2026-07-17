@@ -358,8 +358,8 @@ bool run_case(const Options& options,
     const auto root = workspace / name;
     const auto legacy = root / "pkgmk";
     const auto candidate = root / "libpkgbuild";
-    const auto legacy_recipe = legacy / "recipe";
-    const auto candidate_recipe = candidate / "recipe";
+    const auto legacy_recipe = legacy / name;
+    const auto candidate_recipe = candidate / name;
     const auto legacy_packages = legacy / "packages";
     const auto candidate_packages = candidate / "packages";
     const auto legacy_sources = legacy / "sources";

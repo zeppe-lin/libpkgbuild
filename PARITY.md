@@ -39,8 +39,11 @@ and 2 for invalid input or an inspection failure.
 Corpus runner
 -------------
 
-`pkgbuild-parity` copies each immediate corpus directory containing a
-Pkgfile into two isolated trees.  It runs pkgmk under fakeroot and runs
+`pkgbuild-parity` treats each immediate corpus directory containing a
+Pkgfile as a package directory and copies it into two isolated trees
+without changing its basename.  The directory basename must match the
+Pkgfile `name`, as required by both builders.  It runs pkgmk under
+fakeroot and runs
 the reference libpkgbuild frontend with the same package definition,
 source material, archive format, compression mode, and build identity.
 The resulting archives are then compared directly.  The runner also

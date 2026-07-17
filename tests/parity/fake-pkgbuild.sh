@@ -19,6 +19,11 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ "$(basename "$recipe")" != fake ]; then
+    echo "fake-pkgbuild: recipe basename is not package name" >&2
+    exit 2
+fi
+
 tree=$package_dir/fake-root
 rm -rf "$tree"
 mkdir -p "$tree/usr/share/parity"
