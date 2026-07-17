@@ -1,5 +1,6 @@
 #include <pkgbuild/engine.hpp>
 #include <pkgbuild/error.hpp>
+#include <pkgbuild/stage.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -118,8 +119,8 @@ class Recipes final : public pkgbuild::RecipeRunner {
 public:
     std::string_view name() const noexcept override { return "test"; }
 
-    void run(const pkgbuild::RecipeRequest& request,
-             pkgbuild::EventSink&) const override
+    pkgbuild::StagedPackage run(const pkgbuild::RecipeRequest& request,
+                                pkgbuild::EventSink&) const override
     {
         workspaces.push_back(request.paths.work_dir);
         struct stat state {};
@@ -136,6 +137,7 @@ public:
 
         std::filesystem::create_directories(request.package_root / "usr/bin");
         std::ofstream(request.package_root / "usr/bin/workspace") << "ok\n";
+        return pkgbuild::scan_staged_package(request.package_root);
     }
 
     mutable std::vector<std::filesystem::path> workspaces;
@@ -152,7 +154,7 @@ public:
     pkgbuild::ArchiveReceipt write(const pkgbuild::PackageWriteRequest& request,
                                    pkgbuild::EventSink&) const override
     {
-        require(std::filesystem::exists(request.root / "usr/bin/workspace"),
+        require(std::filesystem::exists(request.package.root / "usr/bin/workspace"),
                 "recipe output was not staged");
         std::filesystem::create_directories(request.output.parent_path());
         std::ofstream(request.output) << "archive\n";

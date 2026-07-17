@@ -1,5 +1,6 @@
 #include <pkgbuild/backends/pkgfile.hpp>
 #include <pkgbuild/error.hpp>
+#include <pkgbuild/stage.hpp>
 
 #include "../process.hpp"
 
@@ -152,8 +153,8 @@ PackageDefinition PkgfileDefinitionLoader::load(const DefinitionRequest& request
     return definition;
 }
 
-void PosixShellRecipeRunner::run(const RecipeRequest& request,
-                                 EventSink& events) const
+StagedPackage PosixShellRecipeRunner::run(const RecipeRequest& request,
+                                          EventSink& events) const
 {
     if (request.definition.recipe.format != RecipeFormat::pkgfile_v0)
         throw Error(ErrorCode::recipe_failed,
@@ -191,6 +192,8 @@ void PosixShellRecipeRunner::run(const RecipeRequest& request,
         throw Error(ErrorCode::recipe_failed,
                     "build recipe failed with status " +
                         std::to_string(process.exit_status));
+
+    return scan_staged_package(request.package_root);
 }
 
 } // namespace pkgbuild

@@ -35,8 +35,8 @@ class RecipeRunner {
 public:
     virtual ~RecipeRunner() = default;
     virtual std::string_view name() const noexcept = 0;
-    virtual void run(const RecipeRequest& request,
-                     EventSink& events) const = 0;
+    virtual StagedPackage run(const RecipeRequest& request,
+                              EventSink& events) const = 0;
 };
 
 class PackageWriter {

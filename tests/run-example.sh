@@ -27,6 +27,7 @@ fi
 	-Wl,-soname,libpkgbuild.so.0 \
 	"$root/libpkgbuild/types.cpp" \
 	"$root/libpkgbuild/process.cpp" \
+	"$root/libpkgbuild/stage.cpp" \
 	"$root/libpkgbuild/engine.cpp" \
 	"$root/libpkgbuild/backends/pkgfile.cpp" \
 	"$root/libpkgbuild/backends/curl.cpp" \

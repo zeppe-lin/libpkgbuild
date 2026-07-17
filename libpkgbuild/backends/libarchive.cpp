@@ -202,9 +202,9 @@ bool LibarchiveBackend::supports(const ArchiveSpec&) const noexcept
 ArchiveReceipt LibarchiveBackend::write(const PackageWriteRequest& request,
                                         EventSink& events) const
 {
-    if (!std::filesystem::is_directory(request.root))
+    if (!std::filesystem::is_directory(request.package.root))
         throw Error(ErrorCode::archive_failed,
-                    "package root is not a directory: " + request.root.string());
+                    "package root is not a directory: " + request.package.root.string());
 
     emit(events, EventKind::info,
          "Creating package '" + request.output.string() + "' with libarchive");
@@ -228,7 +228,7 @@ ArchiveReceipt LibarchiveBackend::write(const PackageWriteRequest& request,
     archive_read_disk_set_standard_lookup(disk.get());
     archive_read_disk_set_symlink_physical(disk.get());
 
-    const auto root = std::filesystem::absolute(request.root);
+    const auto root = std::filesystem::absolute(request.package.root);
     for (std::filesystem::recursive_directory_iterator iterator(root), end;
          iterator != end; ++iterator) {
         const auto path = iterator->path();

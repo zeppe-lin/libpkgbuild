@@ -27,6 +27,7 @@ inc = include_directories('include')
 sources = files(
   'libpkgbuild/types.cpp',
   'libpkgbuild/process.cpp',
+  'libpkgbuild/stage.cpp',
   'libpkgbuild/engine.cpp',
   'libpkgbuild/backends/pkgfile.cpp',
   'libpkgbuild/backends/curl.cpp',

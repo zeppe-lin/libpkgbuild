@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -121,8 +122,46 @@ struct RecipeRequest {
     ExecutionPolicy execution;
 };
 
-struct PackageWriteRequest {
+
+enum class StagedEntryType {
+    regular_file,
+    directory,
+    symbolic_link,
+    fifo,
+    character_device,
+    block_device,
+};
+
+struct StagedTime {
+    std::int64_t seconds{0};
+    std::uint32_t nanoseconds{0};
+};
+
+struct DeviceNumber {
+    std::uint64_t major{0};
+    std::uint64_t minor{0};
+};
+
+struct StagedEntry {
+    std::filesystem::path path;
+    StagedEntryType type{StagedEntryType::regular_file};
+    std::uint32_t mode{0};
+    std::uint64_t uid{0};
+    std::uint64_t gid{0};
+    std::uint64_t size{0};
+    StagedTime modification_time;
+    std::optional<std::string> symlink_target;
+    std::optional<DeviceNumber> device;
+    std::optional<std::filesystem::path> hardlink_target;
+};
+
+struct StagedPackage {
     std::filesystem::path root;
+    std::vector<StagedEntry> entries;
+};
+
+struct PackageWriteRequest {
+    StagedPackage package;
     std::filesystem::path output;
     ArchiveSpec archive;
 };
