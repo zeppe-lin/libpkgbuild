@@ -1,13 +1,19 @@
+#include <pkgbuild/backends/fakeroot.hpp>
 #include <pkgbuild/backends/pkgfile.hpp>
 #include <pkgbuild/error.hpp>
 #include <pkgbuild/stage.hpp>
 
 #include "../process.hpp"
+#include "../stage.hpp"
 
 #include <array>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
 #include <cstdlib>
 #include <pwd.h>
 #include <sstream>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace pkgbuild {
@@ -91,14 +97,63 @@ process_environment(const ExecutionPolicy& policy,
     return environment;
 }
 
+class StateFile final {
+public:
+    StateFile(const std::filesystem::path& directory,
+              const std::optional<BuildIdentity>& identity)
+        : path_(create(directory, identity)) {}
+
+    ~StateFile()
+    {
+        std::error_code ignored;
+        std::filesystem::remove(path_, ignored);
+    }
+
+    const std::filesystem::path& path() const noexcept { return path_; }
+
+private:
+    static std::filesystem::path create(
+        const std::filesystem::path& directory,
+        const std::optional<BuildIdentity>& identity)
+    {
+        std::string pattern = (directory / "fakeroot.XXXXXX").string();
+        std::vector<char> storage(pattern.begin(), pattern.end());
+        storage.push_back('\0');
+        const int descriptor = mkstemp(storage.data());
+        if (descriptor < 0)
+            throw Error(ErrorCode::filesystem_failed,
+                        "cannot create fakeroot state file: " +
+                            std::string(std::strerror(errno)));
+
+        int saved = 0;
+        if (fchmod(descriptor, 0600) != 0)
+            saved = errno;
+        if (saved == 0 && identity && geteuid() == 0 &&
+            fchown(descriptor, identity->uid, identity->gid) != 0)
+            saved = errno;
+        if (close(descriptor) != 0 && saved == 0)
+            saved = errno;
+        if (saved != 0) {
+            std::error_code ignored;
+            std::filesystem::remove(storage.data(), ignored);
+            throw Error(ErrorCode::filesystem_failed,
+                        "cannot prepare fakeroot state file: " +
+                            std::string(std::strerror(saved)));
+        }
+        return storage.data();
+    }
+
+    std::filesystem::path path_;
+};
+
 ProcessRequest process_request(const DefinitionRequest& request,
-                               const std::filesystem::path& helper,
+                               const std::filesystem::path& program,
                                std::vector<std::string> arguments,
                                bool capture_stdout,
                                const std::filesystem::path& temporary_directory)
 {
     return ProcessRequest{
-        std::filesystem::absolute(helper),
+        std::filesystem::absolute(program),
         std::move(arguments),
         std::filesystem::absolute(request.paths.recipe_dir),
         process_environment(request.execution, temporary_directory),
@@ -194,6 +249,79 @@ StagedPackage PosixShellRecipeRunner::run(const RecipeRequest& request,
                         std::to_string(process.exit_status));
 
     return scan_staged_package(request.package_root);
+}
+
+
+StagedPackage FakerootPkgfileRecipeRunner::run(
+    const RecipeRequest& request, EventSink& events) const
+{
+    if (request.definition.recipe.format != RecipeFormat::pkgfile_v0)
+        throw Error(ErrorCode::recipe_failed,
+                    "fakeroot Pkgfile runner cannot execute this recipe format");
+
+    emit(events, EventKind::info,
+         "Running recipe with " + std::string(name()));
+
+    const auto metadata = request.paths.work_dir / "metadata";
+    StateFile state(metadata, request.execution.identity);
+
+    std::vector<std::string> worker_arguments = {
+        "run",
+        std::filesystem::absolute(request.paths.recipe_dir).string(),
+        optional_path(request.definition.recipe.config_file),
+        std::filesystem::absolute(request.paths.source_dir).string(),
+        std::filesystem::absolute(request.paths.package_dir).string(),
+        std::filesystem::absolute(request.paths.work_dir).string(),
+        to_string(request.definition.archive.format),
+        to_string(request.definition.archive.compression),
+        std::filesystem::absolute(request.source_root).string(),
+        std::filesystem::absolute(request.package_root).string(),
+        request.definition.id.name,
+        request.definition.id.version,
+        request.definition.id.release,
+    };
+
+    std::vector<std::string> fakeroot_arguments = {
+        "-s",
+        std::filesystem::absolute(state.path()).string(),
+        "--",
+        std::filesystem::absolute(helper_).string(),
+    };
+    fakeroot_arguments.insert(fakeroot_arguments.end(),
+                              worker_arguments.begin(),
+                              worker_arguments.end());
+
+    DefinitionRequest execution_request{
+        request.paths,
+        request.definition.recipe.config_file,
+        request.definition.archive,
+        request.execution,
+    };
+    const auto recipe = processes_.execute(process_request(
+        execution_request, fakeroot_, std::move(fakeroot_arguments), false,
+        request.paths.work_dir / "tmp"));
+    if (!recipe.ok())
+        throw Error(ErrorCode::recipe_failed,
+                    "fakeroot build recipe failed with status " +
+                        std::to_string(recipe.exit_status));
+
+    std::vector<std::string> scanner_arguments = {
+        "-i",
+        std::filesystem::absolute(state.path()).string(),
+        "--",
+        std::filesystem::absolute(scanner_).string(),
+        std::filesystem::absolute(request.package_root).string(),
+    };
+    const auto scan = processes_.execute(process_request(
+        execution_request, fakeroot_, std::move(scanner_arguments), true,
+        request.paths.work_dir / "tmp"));
+    if (!scan.ok())
+        throw Error(ErrorCode::recipe_failed,
+                    "fakeroot staged metadata scan failed with status " +
+                        std::to_string(scan.exit_status));
+
+    return detail::parse_staged_manifest(request.package_root,
+                                         scan.stdout_data);
 }
 
 } // namespace pkgbuild

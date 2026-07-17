@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <grp.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -123,6 +124,13 @@ std::vector<char*> make_envp(const ProcessRequest& request,
         result.push_back(value.data());
     result.push_back(nullptr);
     return result;
+}
+
+void terminate_remaining_group(pid_t child) noexcept
+{
+    if (child > 0 && kill(-child, SIGKILL) != 0 && errno != ESRCH) {
+        // Best effort: the direct child has already terminated.
+    }
 }
 
 int wait_for(pid_t child, int& signal)
@@ -338,6 +346,8 @@ ProcessResult PosixProcessExecutor::execute(const ProcessRequest& request) const
 
     int termination_signal = 0;
     const int status = wait_for(child, termination_signal);
+    if (request.create_process_group)
+        terminate_remaining_group(child);
     if (failure) {
         throw Error(ErrorCode::process_failed,
                     std::string(stage_name(failure->stage)) + " failed: " +

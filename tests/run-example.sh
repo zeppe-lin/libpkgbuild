@@ -39,8 +39,16 @@ ln -s libpkgbuild.so.0 "$build/libpkgbuild.so"
 
 # shellcheck disable=SC2086
 "$cxx" $common_cxxflags \
+	-I"$root/include" -I"$root/libpkgbuild" \
+	"$root/tools/pkgbuild-stage-scan.cpp" \
+	-L"$build" -Wl,-rpath,"$build" -lpkgbuild \
+	-o "$build/pkgbuild-stage-scan"
+
+# shellcheck disable=SC2086
+"$cxx" $common_cxxflags \
 	-I"$root/include" \
 	-DPKGBUILD_PKGFILE_HELPER=\"$root/libpkgbuild/pkgbuild-pkgfile.in\" \
+	-DPKGBUILD_STAGE_SCANNER=\"$build/pkgbuild-stage-scan\" \
 	"$root/tools/pkgbuild-example.cpp" \
 	-L"$build" -Wl,-rpath,"$build" -lpkgbuild \
 	-o "$build/pkgbuild-example"
@@ -48,6 +56,7 @@ ln -s libpkgbuild.so.0 "$build/libpkgbuild.so"
 # Intentional word splitting for the optional build-user arguments.
 # shellcheck disable=SC2086
 "$build/pkgbuild-example" $build_user_args --helper "$root/libpkgbuild/pkgbuild-pkgfile.in" \
+	--scanner "$build/pkgbuild-stage-scan" --fakeroot /usr/bin/fakeroot \
 	--work-dir "$build/local-work" --package-dir "$build/packages" \
 	"$local_fixture"
 
@@ -58,6 +67,7 @@ tar -tzf "$build/packages/hello#1.0-1.pkg.tar.gz" \
 # shellcheck disable=SC2086
 "$build/pkgbuild-example" $build_user_args --download \
 	--helper "$root/libpkgbuild/pkgbuild-pkgfile.in" \
+	--scanner "$build/pkgbuild-stage-scan" --fakeroot /usr/bin/fakeroot \
 	--source-dir "$build/sources" \
 	--work-dir "$build/archive-work" \
 	--package-dir "$build/packages" \

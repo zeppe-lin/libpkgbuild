@@ -141,6 +141,23 @@ void assign_workspace(const std::filesystem::path& root,
         change_owner(iterator->path(), *identity);
 }
 
+void prepare_metadata_directory(
+    const std::filesystem::path& root,
+    const std::optional<BuildIdentity>& identity)
+{
+    const auto metadata = root / "metadata";
+    std::filesystem::create_directory(metadata);
+    const mode_t mode = identity && geteuid() == 0 ? 0711 : 0700;
+    if (chmod(metadata.c_str(), mode) != 0)
+        throw Error(ErrorCode::filesystem_failed,
+                    "cannot protect build metadata directory: " +
+                        std::string(std::strerror(errno)));
+    if (identity && geteuid() == 0 && lchown(metadata.c_str(), 0, 0) != 0)
+        throw Error(ErrorCode::filesystem_failed,
+                    "cannot retain build metadata directory ownership: " +
+                        std::string(std::strerror(errno)));
+}
+
 } // namespace
 
 PackageDefinition Engine::inspect(const DefinitionRequest& request,
@@ -167,6 +184,8 @@ BuildReceipt Engine::build(const BuildRequest& request,
     std::filesystem::create_directories(paths.work_dir / "pkg");
     std::filesystem::create_directories(paths.work_dir / "tmp");
     assign_workspace(paths.work_dir, request.definition.execution.identity);
+    prepare_metadata_directory(paths.work_dir,
+                               request.definition.execution.identity);
 
     DefinitionRequest definition_request = request.definition;
     definition_request.paths = paths;

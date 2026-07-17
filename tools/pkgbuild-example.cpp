@@ -1,4 +1,5 @@
 #include <pkgbuild/backends/curl.hpp>
+#include <pkgbuild/backends/fakeroot.hpp>
 #include <pkgbuild/backends/libarchive.hpp>
 #include <pkgbuild/backends/pkgfile.hpp>
 #include <pkgbuild/backends/posix.hpp>
@@ -19,6 +20,14 @@
 
 #ifndef PKGBUILD_PKGFILE_HELPER
 #define PKGBUILD_PKGFILE_HELPER "/usr/libexec/pkgbuild-pkgfile"
+#endif
+
+#ifndef PKGBUILD_STAGE_SCANNER
+#define PKGBUILD_STAGE_SCANNER "/usr/libexec/pkgbuild-stage-scan"
+#endif
+
+#ifndef PKGBUILD_FAKEROOT
+#define PKGBUILD_FAKEROOT "/usr/bin/fakeroot"
 #endif
 
 namespace {
@@ -49,6 +58,8 @@ public:
            << "      --package-dir DIR    package output directory\n"
            << "      --work-dir DIR       private workspace base\n"
            << "      --helper FILE        pkgfile/0 worker path\n"
+           << "      --scanner FILE       staged metadata scanner path\n"
+           << "      --fakeroot FILE      fakeroot frontend path\n"
            << "      --build-user USER    execute Pkgfile as USER\n"
            << "  -h, --help               show this help\n";
     std::exit(status);
@@ -116,6 +127,8 @@ int main(int argc, char** argv)
         std::optional<std::filesystem::path> package_dir;
         std::optional<std::filesystem::path> work_dir;
         std::filesystem::path helper = PKGBUILD_PKGFILE_HELPER;
+        std::filesystem::path scanner = PKGBUILD_STAGE_SCANNER;
+        std::filesystem::path fakeroot = PKGBUILD_FAKEROOT;
         std::optional<std::string> build_user;
         bool download = false;
         bool keep_work = false;
@@ -136,6 +149,10 @@ int main(int argc, char** argv)
                 work_dir = require_argument(i, argc, argv);
             } else if (option == "--helper") {
                 helper = require_argument(i, argc, argv);
+            } else if (option == "--scanner") {
+                scanner = require_argument(i, argc, argv);
+            } else if (option == "--fakeroot") {
+                fakeroot = require_argument(i, argc, argv);
             } else if (option == "--build-user") {
                 build_user = require_argument(i, argc, argv);
             } else if (option == "-h" || option == "--help") {
@@ -159,7 +176,8 @@ int main(int argc, char** argv)
         pkgbuild::PkgfileDefinitionLoader definitions(helper, processes);
         pkgbuild::CurlDownloader downloader;
         pkgbuild::LibarchiveBackend archives;
-        pkgbuild::PosixShellRecipeRunner recipes(helper, processes);
+        pkgbuild::FakerootPkgfileRecipeRunner recipes(
+            fakeroot, helper, scanner, processes);
         pkgbuild::Services services{
             definitions,
             downloader,
