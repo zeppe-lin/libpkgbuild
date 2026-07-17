@@ -23,7 +23,7 @@ enum class ErrorCode {
     filesystem_failed,
 };
 
-class Error final : public std::runtime_error {
+class Error : public std::runtime_error {
 public:
     Error(ErrorCode code, std::string message)
         : std::runtime_error(std::move(message)), code_(code) {}

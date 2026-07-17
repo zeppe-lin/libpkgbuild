@@ -68,6 +68,8 @@ public:
            << "      --fakeroot FILE      fakeroot frontend path\n"
            << "      --build-user USER    execute Pkgfile as USER\n"
            << "      --strip FILE         binary stripping program\n"
+           << "      --check-footprint FILE  compare generated footprint\n"
+           << "      --write-footprint FILE  replace footprint atomically\n"
            << "  -h, --help               show this help\n";
     std::exit(status);
 }
@@ -138,6 +140,7 @@ int main(int argc, char** argv)
         std::filesystem::path fakeroot = PKGBUILD_FAKEROOT;
         std::filesystem::path strip = PKGBUILD_STRIP;
         std::optional<std::string> build_user;
+        pkgbuild::FootprintPolicy footprint;
         bool download = false;
         bool keep_work = false;
 
@@ -165,6 +168,12 @@ int main(int argc, char** argv)
                 build_user = require_argument(i, argc, argv);
             } else if (option == "--strip") {
                 strip = require_argument(i, argc, argv);
+            } else if (option == "--check-footprint") {
+                footprint.action = pkgbuild::FootprintAction::compare;
+                footprint.manifest = require_argument(i, argc, argv);
+            } else if (option == "--write-footprint") {
+                footprint.action = pkgbuild::FootprintAction::write;
+                footprint.manifest = require_argument(i, argc, argv);
             } else if (option == "-h" || option == "--help") {
                 usage(argv[0], 0);
             } else if (!option.empty() && option[0] == '-') {
@@ -219,7 +228,7 @@ int main(int argc, char** argv)
             download,
             keep_work,
             {},
-            {},
+            footprint,
         };
 
         const auto receipt = engine.build(request, events);

@@ -289,6 +289,19 @@ EntryMap index_entries(const Footprint& footprint)
 
 } // namespace
 
+FootprintMismatch::FootprintMismatch(
+    std::filesystem::path manifest, FootprintDifference difference)
+    : Error(
+          ErrorCode::footprint_mismatch,
+          "footprint mismatch in '" + manifest.string() + "': " +
+              std::to_string(difference.added.size()) + " added, " +
+              std::to_string(difference.removed.size()) + " removed, " +
+              std::to_string(difference.changed.size()) + " changed"),
+      manifest_(std::move(manifest)),
+      difference_(std::move(difference))
+{
+}
+
 Footprint footprint_from_staged_package(const StagedPackage& package)
 {
     validate_staged_package(package);

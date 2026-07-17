@@ -1,5 +1,6 @@
 #include <pkgbuild/engine.hpp>
 #include <pkgbuild/error.hpp>
+#include <pkgbuild/footprint.hpp>
 #include <pkgbuild/process.hpp>
 #include <pkgbuild/stage.hpp>
 
@@ -346,6 +347,32 @@ BuildReceipt Engine::build(const BuildRequest& request,
     if (!transformation.changes.empty())
         receipt.transformations.push_back(std::move(transformation));
     validate_staged_package(staged);
+
+    if (request.footprint.action != FootprintAction::ignore) {
+        const auto manifest = std::filesystem::absolute(
+            request.footprint.manifest.value_or(
+                configured_paths.recipe_dir / ".footprint"));
+        FootprintReceipt footprint;
+        footprint.manifest = manifest;
+        footprint.actual = footprint_from_staged_package(staged);
+
+        if (request.footprint.action == FootprintAction::compare) {
+            emit(events, EventKind::info,
+                 "Checking footprint '" + manifest.string() + "'");
+            footprint.expected = read_footprint(manifest);
+            footprint.difference = compare_footprints(
+                *footprint.expected, footprint.actual);
+            if (!footprint.difference.empty())
+                throw FootprintMismatch(manifest, footprint.difference);
+        } else if (request.footprint.action == FootprintAction::write) {
+            emit(events, EventKind::info,
+                 "Writing footprint '" + manifest.string() + "'");
+            write_footprint(manifest, footprint.actual);
+            footprint.written = true;
+        }
+        receipt.footprint = std::move(footprint);
+    }
+
     seal_workspace(paths.work_dir, request.definition.execution.identity);
 
     const auto target =
