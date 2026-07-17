@@ -91,7 +91,8 @@ BuildReceipt Engine::build(const BuildRequest& request,
     }
 
     services_.recipes.run(
-        RecipeRequest{definition, paths, source_root, package_root}, events);
+        RecipeRequest{definition, paths, source_root, package_root,
+                      request.definition.execution}, events);
 
     if (std::filesystem::is_empty(package_root))
         throw Error(ErrorCode::recipe_failed,

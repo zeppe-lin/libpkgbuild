@@ -1,9 +1,13 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <sys/stat.h>
+#include <sys/types.h>
 
 namespace pkgbuild {
 
@@ -58,6 +62,20 @@ struct PackageDefinition {
     ArchiveSpec archive;
 };
 
+struct BuildIdentity {
+    uid_t uid{0};
+    gid_t gid{0};
+    std::vector<gid_t> supplementary_groups;
+    std::filesystem::path home;
+    std::string user;
+};
+
+struct ExecutionPolicy {
+    std::optional<BuildIdentity> identity;
+    std::map<std::string, std::string> environment;
+    mode_t file_creation_mask{0022};
+};
+
 struct BuildPaths {
     std::filesystem::path recipe_dir;
     std::filesystem::path source_dir;
@@ -69,6 +87,7 @@ struct DefinitionRequest {
     BuildPaths paths;
     std::optional<std::filesystem::path> config_file;
     ArchiveSpec defaults;
+    ExecutionPolicy execution;
 };
 
 struct BuildRequest {
@@ -99,6 +118,7 @@ struct RecipeRequest {
     BuildPaths paths;
     std::filesystem::path source_root;
     std::filesystem::path package_root;
+    ExecutionPolicy execution;
 };
 
 struct PackageWriteRequest {

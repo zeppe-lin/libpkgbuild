@@ -1,6 +1,7 @@
 #include <pkgbuild/backends/curl.hpp>
 #include <pkgbuild/backends/libarchive.hpp>
 #include <pkgbuild/backends/pkgfile.hpp>
+#include <pkgbuild/backends/posix.hpp>
 #include <pkgbuild/engine.hpp>
 #include <pkgbuild/error.hpp>
 
@@ -8,6 +9,9 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <array>
+#include <cstdlib>
+#include <map>
 
 #ifndef PKGBUILD_PKGFILE_HELPER
 #define PKGBUILD_PKGFILE_HELPER "/usr/libexec/pkgbuild-pkgfile"
@@ -43,6 +47,21 @@ public:
            << "      --helper FILE        pkgfile/0 worker path\n"
            << "  -h, --help               show this help\n";
     std::exit(status);
+}
+
+
+std::map<std::string, std::string> selected_environment()
+{
+    static const std::array<const char*, 9> names = {
+        "PATH", "LANG", "LC_ALL", "MAKEFLAGS", "CFLAGS",
+        "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "PKG_CONFIG_PATH",
+    };
+    std::map<std::string, std::string> result;
+    for (const char* name : names) {
+        if (const char* value = std::getenv(name))
+            result.emplace(name, value);
+    }
+    return result;
 }
 
 std::string require_argument(int& index, int argc, char** argv)
@@ -99,10 +118,11 @@ int main(int argc, char** argv)
             work_dir ? std::filesystem::absolute(*work_dir) : recipe_dir / "work",
         };
 
-        pkgbuild::PkgfileDefinitionLoader definitions(helper);
+        pkgbuild::PosixProcessExecutor processes;
+        pkgbuild::PkgfileDefinitionLoader definitions(helper, processes);
         pkgbuild::CurlDownloader downloader;
         pkgbuild::LibarchiveBackend archives;
-        pkgbuild::PosixShellRecipeRunner recipes(helper);
+        pkgbuild::PosixShellRecipeRunner recipes(helper, processes);
         pkgbuild::Services services{
             definitions,
             downloader,
@@ -118,6 +138,11 @@ int main(int argc, char** argv)
                 paths,
                 config_file,
                 pkgbuild::ArchiveSpec{},
+                pkgbuild::ExecutionPolicy{
+                    std::nullopt,
+                    selected_environment(),
+                    0022,
+                },
             },
             download,
             keep_work,

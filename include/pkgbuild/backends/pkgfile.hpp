@@ -1,13 +1,15 @@
 #pragma once
 
 #include <pkgbuild/backend.hpp>
+#include <pkgbuild/process.hpp>
 
 namespace pkgbuild {
 
 class PkgfileDefinitionLoader final : public DefinitionLoader {
 public:
-    explicit PkgfileDefinitionLoader(std::filesystem::path helper)
-        : helper_(std::move(helper)) {}
+    PkgfileDefinitionLoader(std::filesystem::path helper,
+                            const ProcessExecutor& processes)
+        : helper_(std::move(helper)), processes_(processes) {}
 
     std::string_view name() const noexcept override { return "pkgfile/0"; }
     PackageDefinition load(const DefinitionRequest& request,
@@ -15,12 +17,14 @@ public:
 
 private:
     std::filesystem::path helper_;
+    const ProcessExecutor& processes_;
 };
 
 class PosixShellRecipeRunner final : public RecipeRunner {
 public:
-    explicit PosixShellRecipeRunner(std::filesystem::path helper)
-        : helper_(std::move(helper)) {}
+    PosixShellRecipeRunner(std::filesystem::path helper,
+                           const ProcessExecutor& processes)
+        : helper_(std::move(helper)), processes_(processes) {}
 
     std::string_view name() const noexcept override { return "pkgfile/0-shell"; }
     void run(const RecipeRequest& request,
@@ -28,6 +32,7 @@ public:
 
 private:
     std::filesystem::path helper_;
+    const ProcessExecutor& processes_;
 };
 
 } // namespace pkgbuild
