@@ -16,6 +16,8 @@ enum class ErrorCode {
     extraction_failed,
     recipe_failed,
     transformation_failed,
+    invalid_footprint,
+    footprint_mismatch,
     archive_failed,
     process_failed,
     filesystem_failed,
