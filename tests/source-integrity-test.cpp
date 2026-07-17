@@ -213,6 +213,7 @@ pkgbuild::BuildRequest make_request(const std::filesystem::path& root,
          std::nullopt, {}, std::move(execution)},
         download,
         false,
+        {},
     };
 }
 
@@ -221,6 +222,7 @@ pkgbuild::PackageDefinition definition_for(pkgbuild::Source source)
     return {{"integrity", "1", "1"},
             {std::move(source)},
             {pkgbuild::RecipeFormat::pkgfile_v0, {}, std::nullopt, "build"},
+            {},
             {}};
 }
 
@@ -231,12 +233,13 @@ struct Harness {
     Extractor extractor;
     Recipes recipes;
     Packages packages;
+    pkgbuild::NullPackageTransformer transformer;
     pkgbuild::NullEventSink events;
 
     pkgbuild::Engine engine()
     {
         return pkgbuild::Engine({definitions, downloader, verifier, extractor,
-                                 recipes, packages});
+                                 recipes, transformer, packages});
     }
 };
 

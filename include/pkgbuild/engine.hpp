@@ -10,6 +10,7 @@ struct Services {
     SourceVerifier& verifier;
     SourceExtractor& extractor;
     RecipeRunner& recipes;
+    PackageTransformer& transformer;
     PackageWriter& packages;
 };
 

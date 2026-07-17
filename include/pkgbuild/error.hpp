@@ -15,6 +15,7 @@ enum class ErrorCode {
     source_changed,
     extraction_failed,
     recipe_failed,
+    transformation_failed,
     archive_failed,
     process_failed,
     filesystem_failed,

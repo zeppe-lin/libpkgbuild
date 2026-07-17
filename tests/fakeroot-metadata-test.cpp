@@ -210,8 +210,9 @@ int main(int argc, char** argv)
         pkgbuild::LibarchiveBackend archives;
         pkgbuild::FakerootPkgfileRecipeRunner recipes(
             argv[3], argv[1], argv[2], processes);
+        pkgbuild::NullPackageTransformer transformer;
         pkgbuild::Engine engine({definitions, downloader, verifier,
-                                 archives, recipes, archives});
+                                 archives, recipes, transformer, archives});
         pkgbuild::NullEventSink events;
 
         const auto receipt = engine.build(
@@ -229,6 +230,7 @@ int main(int argc, char** argv)
                 },
                 false,
                 true,
+                {},
             },
             events);
 

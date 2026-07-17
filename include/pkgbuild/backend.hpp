@@ -57,6 +57,33 @@ public:
                               EventSink& events) const = 0;
 };
 
+struct PackageTransformRequest {
+    StagedPackage& package;
+    const PackageDefinition& definition;
+    const TransformationPolicy& policy;
+    const ExecutionPolicy& execution;
+};
+
+class PackageTransformer {
+public:
+    virtual ~PackageTransformer() = default;
+    virtual std::string_view name() const noexcept = 0;
+    virtual TransformationReceipt transform(
+        const PackageTransformRequest& request,
+        EventSink& events) const = 0;
+};
+
+class NullPackageTransformer final : public PackageTransformer {
+public:
+    std::string_view name() const noexcept override { return "none"; }
+    TransformationReceipt transform(
+        const PackageTransformRequest&,
+        EventSink&) const override
+    {
+        return TransformationReceipt{std::string(name()), {}};
+    }
+};
+
 class PackageWriter {
 public:
     virtual ~PackageWriter() = default;

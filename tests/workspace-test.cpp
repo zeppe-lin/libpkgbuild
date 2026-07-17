@@ -89,6 +89,7 @@ public:
             {},
             {pkgbuild::RecipeFormat::pkgfile_v0, {}, std::nullopt, "build"},
             {},
+            {},
         };
     }
 
@@ -204,6 +205,7 @@ pkgbuild::BuildRequest make_request(const std::filesystem::path& root,
         },
         false,
         keep,
+        {},
     };
 }
 
@@ -223,9 +225,10 @@ int main()
         Extractor extractor;
         Recipes recipes;
         Packages packages;
+        pkgbuild::NullPackageTransformer transformer;
         pkgbuild::NullEventSink events;
         pkgbuild::Engine engine({definitions, downloader, verifier,
-                                 extractor, recipes, packages});
+                                 extractor, recipes, transformer, packages});
 
         auto request = make_request(root, false);
         const auto first = engine.build(request, events);

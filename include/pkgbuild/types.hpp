@@ -39,6 +39,12 @@ enum class DigestAlgorithm {
     blake2b512,
 };
 
+enum class TransformationKind {
+    strip_binary,
+    compress_manpage,
+    rewrite_manpage_symlink,
+};
+
 struct Digest {
     DigestAlgorithm algorithm{DigestAlgorithm::sha256};
     std::string hexadecimal;
@@ -74,6 +80,7 @@ struct PackageDefinition {
     std::vector<Source> sources;
     Recipe recipe;
     ArchiveSpec archive;
+    std::vector<std::string> strip_exclusions;
 };
 
 struct BuildIdentity {
@@ -104,10 +111,16 @@ struct DefinitionRequest {
     ExecutionPolicy execution;
 };
 
+struct TransformationPolicy {
+    bool strip_binaries{true};
+    bool compress_manpages{true};
+};
+
 struct BuildRequest {
     DefinitionRequest definition;
     bool download_missing{false};
     bool keep_work{false};
+    TransformationPolicy transformations;
 };
 
 struct DownloadRequest {
@@ -180,6 +193,19 @@ struct PackageWriteRequest {
     ArchiveSpec archive;
 };
 
+struct TransformationChange {
+    TransformationKind kind{TransformationKind::strip_binary};
+    std::vector<std::filesystem::path> inputs;
+    std::vector<std::filesystem::path> outputs;
+    std::uintmax_t bytes_before{0};
+    std::uintmax_t bytes_after{0};
+};
+
+struct TransformationReceipt {
+    std::string transformer;
+    std::vector<TransformationChange> changes;
+};
+
 struct ArchiveReceipt {
     std::filesystem::path output;
     std::uintmax_t bytes_written{0};
@@ -191,6 +217,7 @@ struct BuildReceipt {
     std::filesystem::path package;
     std::vector<DownloadReceipt> downloads;
     std::vector<VerificationReceipt> verifications;
+    std::vector<TransformationReceipt> transformations;
     ArchiveReceipt archive;
     std::optional<std::filesystem::path> work_directory;
 };

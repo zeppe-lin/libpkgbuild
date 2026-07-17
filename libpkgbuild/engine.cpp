@@ -1,6 +1,7 @@
 #include <pkgbuild/engine.hpp>
 #include <pkgbuild/error.hpp>
 #include <pkgbuild/process.hpp>
+#include <pkgbuild/stage.hpp>
 
 #include <cerrno>
 #include <cstring>
@@ -338,6 +339,14 @@ BuildReceipt Engine::build(const BuildRequest& request,
     if (staged.entries.empty())
         throw Error(ErrorCode::recipe_failed,
                     "build recipe produced an empty package root");
+
+    auto transformation = services_.transformer.transform(
+        PackageTransformRequest{staged, definition, request.transformations,
+                                request.definition.execution},
+        events);
+    if (!transformation.changes.empty())
+        receipt.transformations.push_back(std::move(transformation));
+    validate_staged_package(staged);
 
     const auto target =
         std::filesystem::absolute(paths.package_dir /
