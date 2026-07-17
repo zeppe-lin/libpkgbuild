@@ -193,6 +193,7 @@ int main(int argc, char** argv)
             false,
             false,
             {},
+            {},
         }, events);
 
         require(receipt.transformations.size() == 1,

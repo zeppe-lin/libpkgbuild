@@ -31,6 +31,7 @@ fi
 	-Wl,-soname,libpkgbuild.so.0 \
 	"$root/libpkgbuild/types.cpp" \
 	"$root/libpkgbuild/source.cpp" \
+	"$root/libpkgbuild/footprint.cpp" \
 	"$root/libpkgbuild/process.cpp" \
 	"$root/libpkgbuild/stage.cpp" \
 	"$root/libpkgbuild/engine.cpp" \

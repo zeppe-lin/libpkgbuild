@@ -219,6 +219,7 @@ int main(int argc, char** argv)
             download,
             keep_work,
             {},
+            {},
         };
 
         const auto receipt = engine.build(request, events);

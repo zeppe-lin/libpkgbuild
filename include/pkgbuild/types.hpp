@@ -39,6 +39,12 @@ enum class DigestAlgorithm {
     blake2b512,
 };
 
+enum class FootprintAction {
+    ignore,
+    compare,
+    write,
+};
+
 enum class TransformationKind {
     strip_binary,
     compress_manpage,
@@ -116,11 +122,17 @@ struct TransformationPolicy {
     bool compress_manpages{true};
 };
 
+struct FootprintPolicy {
+    FootprintAction action{FootprintAction::ignore};
+    std::optional<std::filesystem::path> manifest;
+};
+
 struct BuildRequest {
     DefinitionRequest definition;
     bool download_missing{false};
     bool keep_work{false};
     TransformationPolicy transformations;
+    FootprintPolicy footprint;
 };
 
 struct DownloadRequest {
@@ -187,6 +199,44 @@ struct StagedPackage {
     std::vector<StagedEntry> entries;
 };
 
+
+struct FootprintEntry {
+    std::filesystem::path path;
+    StagedEntryType type{StagedEntryType::regular_file};
+    std::uint32_t mode{0};
+    std::uint64_t uid{0};
+    std::uint64_t gid{0};
+    std::optional<std::string> symlink_target;
+};
+
+struct Footprint {
+    std::vector<FootprintEntry> entries;
+};
+
+struct FootprintChange {
+    FootprintEntry expected;
+    FootprintEntry actual;
+};
+
+struct FootprintDifference {
+    std::vector<FootprintEntry> added;
+    std::vector<FootprintEntry> removed;
+    std::vector<FootprintChange> changed;
+
+    bool empty() const noexcept
+    {
+        return added.empty() && removed.empty() && changed.empty();
+    }
+};
+
+struct FootprintReceipt {
+    std::filesystem::path manifest;
+    Footprint actual;
+    std::optional<Footprint> expected;
+    FootprintDifference difference;
+    bool written{false};
+};
+
 struct PackageWriteRequest {
     StagedPackage package;
     std::filesystem::path output;
@@ -218,6 +268,7 @@ struct BuildReceipt {
     std::vector<DownloadReceipt> downloads;
     std::vector<VerificationReceipt> verifications;
     std::vector<TransformationReceipt> transformations;
+    std::optional<FootprintReceipt> footprint;
     ArchiveReceipt archive;
     std::optional<std::filesystem::path> work_directory;
 };
