@@ -128,11 +128,6 @@ struct VerificationReceipt {
     std::string observed;
 };
 
-struct ExtractRequest {
-    std::filesystem::path archive;
-    std::filesystem::path destination;
-};
-
 struct RecipeRequest {
     PackageDefinition definition;
     BuildPaths paths;
@@ -195,6 +190,7 @@ struct BuildReceipt {
     PackageDefinition definition;
     std::filesystem::path package;
     std::vector<DownloadReceipt> downloads;
+    std::vector<VerificationReceipt> verifications;
     ArchiveReceipt archive;
     std::optional<std::filesystem::path> work_directory;
 };

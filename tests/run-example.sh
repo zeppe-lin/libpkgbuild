@@ -35,9 +35,10 @@ fi
 	"$root/libpkgbuild/stage.cpp" \
 	"$root/libpkgbuild/engine.cpp" \
 	"$root/libpkgbuild/backends/pkgfile.cpp" \
+	"$root/libpkgbuild/backends/openssl.cpp" \
 	"$root/libpkgbuild/backends/curl.cpp" \
 	"$root/libpkgbuild/backends/libarchive.cpp" \
-	$(pkg-config --cflags --libs libarchive libcurl) \
+	$(pkg-config --cflags --libs libarchive libcurl libcrypto) \
 	-o "$build/libpkgbuild.so.0.3.0"
 ln -s libpkgbuild.so.0.3.0 "$build/libpkgbuild.so.0"
 ln -s libpkgbuild.so.0 "$build/libpkgbuild.so"

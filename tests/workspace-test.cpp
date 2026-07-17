@@ -105,6 +105,25 @@ public:
     }
 };
 
+class Verifier final : public pkgbuild::SourceVerifier {
+public:
+    std::string_view name() const noexcept override { return "unused"; }
+
+    pkgbuild::VerifiedSource verify(
+        const std::filesystem::path&,
+        const std::vector<pkgbuild::Digest>&,
+        pkgbuild::EventSink&) const override
+    {
+        fail("verifier must not be called");
+    }
+
+    void revalidate(const pkgbuild::VerifiedSource&,
+                    pkgbuild::EventSink&) const override
+    {
+        fail("verifier must not be called");
+    }
+};
+
 class Extractor final : public pkgbuild::SourceExtractor {
 public:
     std::string_view name() const noexcept override { return "unused"; }
@@ -200,12 +219,13 @@ int main()
 
         Definitions definitions;
         Downloader downloader;
+        Verifier verifier;
         Extractor extractor;
         Recipes recipes;
         Packages packages;
         pkgbuild::NullEventSink events;
-        pkgbuild::Engine engine({definitions, downloader, extractor,
-                                 recipes, packages});
+        pkgbuild::Engine engine({definitions, downloader, verifier,
+                                 extractor, recipes, packages});
 
         auto request = make_request(root, false);
         const auto first = engine.build(request, events);

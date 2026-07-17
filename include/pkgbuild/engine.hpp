@@ -7,6 +7,7 @@ namespace pkgbuild {
 struct Services {
     DefinitionLoader& definitions;
     Downloader& downloader;
+    SourceVerifier& verifier;
     SourceExtractor& extractor;
     RecipeRunner& recipes;
     PackageWriter& packages;

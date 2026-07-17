@@ -1,6 +1,7 @@
 #include <pkgbuild/backends/curl.hpp>
 #include <pkgbuild/backends/fakeroot.hpp>
 #include <pkgbuild/backends/libarchive.hpp>
+#include <pkgbuild/backends/openssl.hpp>
 #include <pkgbuild/backends/pkgfile.hpp>
 #include <pkgbuild/backends/posix.hpp>
 #include <pkgbuild/engine.hpp>
@@ -205,11 +206,12 @@ int main(int argc, char** argv)
         pkgbuild::PosixProcessExecutor processes;
         pkgbuild::PkgfileDefinitionLoader definitions(argv[1], processes);
         pkgbuild::CurlDownloader downloader;
+        pkgbuild::OpenSslSourceVerifier verifier;
         pkgbuild::LibarchiveBackend archives;
         pkgbuild::FakerootPkgfileRecipeRunner recipes(
             argv[3], argv[1], argv[2], processes);
-        pkgbuild::Engine engine({definitions, downloader, archives,
-                                 recipes, archives});
+        pkgbuild::Engine engine({definitions, downloader, verifier,
+                                 archives, recipes, archives});
         pkgbuild::NullEventSink events;
 
         const auto receipt = engine.build(

@@ -330,9 +330,14 @@ void LibarchiveBackend::extract(const ExtractRequest& request,
                                 EventSink& events) const
 {
     emit(events, EventKind::info,
-         "Extracting '" + request.archive.string() + "' with libarchive");
+         "Extracting verified source '" + request.source.path().string() +
+             "' with libarchive");
 
     std::filesystem::create_directories(request.destination);
+
+    FileDescriptor source(request.source.duplicate_descriptor());
+    if (lseek(source.get(), 0, SEEK_SET) < 0)
+        filesystem_error("cannot rewind verified source", request.source.path());
 
     ArchivePtr input(archive_read_new());
     ArchivePtr output(archive_write_disk_new());
@@ -349,10 +354,10 @@ void LibarchiveBackend::extract(const ExtractRequest& request,
         ARCHIVE_EXTRACT_SECURE_SYMLINKS);
     archive_write_disk_set_standard_lookup(output.get());
 
-    if (archive_read_open_filename(input.get(), request.archive.c_str(),
-                                   64 * 1024) != ARCHIVE_OK)
+    if (archive_read_open_fd(input.get(), source.get(), 64 * 1024) !=
+        ARCHIVE_OK)
         archive_error(ErrorCode::extraction_failed, input.get(),
-                      "opening source archive");
+                      "opening verified source archive");
 
     archive_entry* entry = nullptr;
     while (archive_read_next_header(input.get(), &entry) == ARCHIVE_OK) {

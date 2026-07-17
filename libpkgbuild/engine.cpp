@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
@@ -120,6 +121,84 @@ std::filesystem::path local_source_path(const Source& source,
     return std::filesystem::absolute(paths.recipe_dir / source.local_name);
 }
 
+class FileDescriptor final
+{
+public:
+    explicit FileDescriptor(int value = -1) noexcept : value_(value) {}
+    ~FileDescriptor()
+    {
+        if (value_ >= 0)
+            (void)close(value_);
+    }
+
+    FileDescriptor(const FileDescriptor&) = delete;
+    FileDescriptor& operator=(const FileDescriptor&) = delete;
+
+    int get() const noexcept { return value_; }
+
+private:
+    int value_;
+};
+
+[[noreturn]] void source_copy_error(const std::string& operation,
+                                    const std::filesystem::path& path)
+{
+    throw Error(ErrorCode::filesystem_failed,
+                operation + " '" + path.string() + "': " +
+                    std::strerror(errno));
+}
+
+void copy_verified_source(const VerifiedSource& source,
+                          const std::filesystem::path& destination)
+{
+    FileDescriptor input(source.duplicate_descriptor());
+    if (lseek(input.get(), 0, SEEK_SET) < 0)
+        source_copy_error("cannot rewind verified source", source.path());
+
+    struct stat status {};
+    if (fstat(input.get(), &status) != 0)
+        source_copy_error("cannot inspect verified source", source.path());
+    if (!S_ISREG(status.st_mode))
+        throw Error(ErrorCode::filesystem_failed,
+                    "verified source is not a regular file: " +
+                        source.path().string());
+
+    FileDescriptor output(open(destination.c_str(),
+                               O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC |
+                                   O_NOFOLLOW,
+                               status.st_mode & 0777));
+    if (output.get() < 0)
+        source_copy_error("cannot create source copy", destination);
+    if (fchmod(output.get(), status.st_mode & 0777) != 0)
+        source_copy_error("cannot set source copy mode", destination);
+
+    char buffer[64 * 1024];
+    for (;;) {
+        const ssize_t count = read(input.get(), buffer, sizeof(buffer));
+        if (count > 0) {
+            std::size_t offset = 0;
+            while (offset != static_cast<std::size_t>(count)) {
+                const ssize_t written = write(
+                    output.get(), buffer + offset,
+                    static_cast<std::size_t>(count) - offset);
+                if (written > 0) {
+                    offset += static_cast<std::size_t>(written);
+                    continue;
+                }
+                if (written < 0 && errno == EINTR)
+                    continue;
+                source_copy_error("cannot write source copy", destination);
+            }
+            continue;
+        }
+        if (count == 0)
+            break;
+        if (errno == EINTR)
+            continue;
+        source_copy_error("cannot read verified source", source.path());
+    }
+}
+
 void change_owner(const std::filesystem::path& path,
                   const BuildIdentity& identity)
 {
@@ -226,18 +305,28 @@ BuildReceipt Engine::build(const BuildRequest& request,
                     DownloadRequest{*source.uri, local}, events));
         }
 
+        if (source.digests.empty())
+            throw Error(ErrorCode::invalid_definition,
+                        "source has no declared checksum: " +
+                            source.declaration);
+
+        auto verified =
+            services_.verifier.verify(local, source.digests, events);
+        receipt.verifications.insert(receipt.verifications.end(),
+                                     verified.receipts().begin(),
+                                     verified.receipts().end());
+
         if (source_is_archive(local)) {
             services_.extractor.extract(
-                ExtractRequest{local, source_root}, events);
+                ExtractRequest{verified, source_root}, events);
         } else {
-            const auto destination = source_root / source.local_name;
+            const auto destination =
+                source_root / source.local_name.filename();
             emit(events, EventKind::info,
-                 "Copying source '" + local.string() + "'");
-            std::filesystem::create_directories(destination.parent_path());
-            std::filesystem::copy_file(
-                local, destination,
-                std::filesystem::copy_options::overwrite_existing);
+                 "Copying verified source '" + local.string() + "'");
+            copy_verified_source(verified, destination);
         }
+        services_.verifier.revalidate(verified, events);
     }
 
     assign_workspace(paths.work_dir, request.definition.execution.identity);

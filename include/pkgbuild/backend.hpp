@@ -36,6 +36,11 @@ public:
                             EventSink& events) const = 0;
 };
 
+struct ExtractRequest {
+    const VerifiedSource& source;
+    std::filesystem::path destination;
+};
+
 class SourceExtractor {
 public:
     virtual ~SourceExtractor() = default;
