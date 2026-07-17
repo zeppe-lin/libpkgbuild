@@ -158,6 +158,17 @@ void prepare_metadata_directory(
                         std::string(std::strerror(errno)));
 }
 
+void seal_workspace(const std::filesystem::path& root,
+                    const std::optional<BuildIdentity>& identity)
+{
+    if (!identity || geteuid() != 0)
+        return;
+    if (lchown(root.c_str(), 0, 0) != 0 || chmod(root.c_str(), 0700) != 0)
+        throw Error(ErrorCode::filesystem_failed,
+                    "cannot seal build workspace " + root.string() + ": " +
+                        std::strerror(errno));
+}
+
 } // namespace
 
 PackageDefinition Engine::inspect(const DefinitionRequest& request,
@@ -233,6 +244,7 @@ BuildReceipt Engine::build(const BuildRequest& request,
     auto staged = services_.recipes.run(
         RecipeRequest{definition, paths, source_root, package_root,
                       request.definition.execution}, events);
+    seal_workspace(paths.work_dir, request.definition.execution.identity);
 
     if (staged.entries.empty())
         throw Error(ErrorCode::recipe_failed,
@@ -249,7 +261,8 @@ BuildReceipt Engine::build(const BuildRequest& request,
                     "package writer does not support requested archive");
 
     receipt.archive = services_.packages.write(
-        PackageWriteRequest{std::move(staged), target, definition.archive}, events);
+        PackageWriteRequest{std::move(staged), target, definition.archive},
+        events);
     receipt.package = receipt.archive.output;
 
     emit(events, EventKind::info,

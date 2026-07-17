@@ -1,5 +1,6 @@
 #include <pkgbuild/backends/libarchive.hpp>
 #include <pkgbuild/error.hpp>
+#include <pkgbuild/stage.hpp>
 
 #include <archive.h>
 #include <archive_entry.h>
@@ -7,7 +8,6 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
-#include <fstream>
 #include <memory>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -31,6 +31,40 @@ struct EntryDeleter {
     }
 };
 
+class FileDescriptor final {
+public:
+    explicit FileDescriptor(int value = -1) noexcept : value_(value) {}
+    ~FileDescriptor()
+    {
+        if (value_ >= 0)
+            (void)close(value_);
+    }
+
+    FileDescriptor(const FileDescriptor&) = delete;
+    FileDescriptor& operator=(const FileDescriptor&) = delete;
+
+    FileDescriptor(FileDescriptor&& other) noexcept : value_(other.value_)
+    {
+        other.value_ = -1;
+    }
+
+    FileDescriptor& operator=(FileDescriptor&& other) noexcept
+    {
+        if (this != &other) {
+            if (value_ >= 0)
+                (void)close(value_);
+            value_ = other.value_;
+            other.value_ = -1;
+        }
+        return *this;
+    }
+
+    int get() const noexcept { return value_; }
+
+private:
+    int value_;
+};
+
 using ArchivePtr = std::unique_ptr<archive, ArchiveDeleter>;
 using EntryPtr = std::unique_ptr<archive_entry, EntryDeleter>;
 
@@ -40,6 +74,14 @@ using EntryPtr = std::unique_ptr<archive_entry, EntryDeleter>;
 {
     const char* message = archive_error_string(handle);
     throw Error(code, operation + ": " + (message ? message : "unknown error"));
+}
+
+[[noreturn]] void filesystem_error(const std::string& operation,
+                                   const std::filesystem::path& path)
+{
+    throw Error(ErrorCode::archive_failed,
+                operation + " '" + path.string() + "': " +
+                    std::strerror(errno));
 }
 
 void copy_archive_data(archive* input, archive* output, ErrorCode code)
@@ -117,22 +159,169 @@ bool safe_archive_path(const std::filesystem::path& path)
     return true;
 }
 
-void write_regular_file(archive* output, const std::filesystem::path& path)
+FileDescriptor open_root(const std::filesystem::path& root)
 {
-    std::ifstream input(path, std::ios::binary);
-    if (!input)
-        throw Error(ErrorCode::archive_failed,
-                    "cannot read package file: " + path.string());
+    const int descriptor = open(root.c_str(), O_RDONLY | O_DIRECTORY |
+                                               O_CLOEXEC | O_NOFOLLOW);
+    if (descriptor < 0)
+        filesystem_error("cannot open package root", root);
+    return FileDescriptor(descriptor);
+}
 
-    char buffer[64 * 1024];
-    while (input) {
-        input.read(buffer, sizeof(buffer));
-        const auto count = input.gcount();
-        if (count > 0 && archive_write_data(output, buffer,
-                                             static_cast<size_t>(count)) < 0)
-            archive_error(ErrorCode::archive_failed, output,
-                          "writing package file");
+FileDescriptor duplicate_descriptor(int descriptor)
+{
+    const int duplicate = fcntl(descriptor, F_DUPFD_CLOEXEC, 0);
+    if (duplicate < 0)
+        throw Error(ErrorCode::archive_failed,
+                    "cannot duplicate package root descriptor: " +
+                        std::string(std::strerror(errno)));
+    return FileDescriptor(duplicate);
+}
+
+FileDescriptor open_regular_beneath(int root,
+                                    const std::filesystem::path& relative)
+{
+    FileDescriptor directory = duplicate_descriptor(root);
+    auto component = relative.begin();
+    const auto end = relative.end();
+    if (component == end)
+        throw Error(ErrorCode::archive_failed,
+                    "empty package payload path");
+
+    for (;;) {
+        const auto current = component++;
+        const bool last = component == end;
+        const int flags = last ? O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+                               : O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW;
+        const int opened = openat(directory.get(), current->c_str(), flags);
+        if (opened < 0)
+            filesystem_error("cannot open staged package object", relative);
+        FileDescriptor next(opened);
+        if (last)
+            return next;
+        directory = std::move(next);
     }
+}
+
+void configure_entry(archive_entry* output, const StagedEntry& entry)
+{
+    const auto pathname = entry.path.generic_string();
+    archive_entry_set_pathname(output, pathname.c_str());
+    archive_entry_set_perm(output, static_cast<mode_t>(entry.mode));
+    archive_entry_set_uid(output, static_cast<la_int64_t>(entry.uid));
+    archive_entry_set_gid(output, static_cast<la_int64_t>(entry.gid));
+    archive_entry_set_mtime(output,
+                            static_cast<time_t>(entry.modification_time.seconds),
+                            static_cast<long>(entry.modification_time.nanoseconds));
+
+    switch (entry.type) {
+    case StagedEntryType::regular_file:
+        archive_entry_set_filetype(output, AE_IFREG);
+        if (entry.hardlink_target) {
+            const auto target = entry.hardlink_target->generic_string();
+            archive_entry_set_hardlink(output, target.c_str());
+            archive_entry_set_size(output, 0);
+        } else {
+            archive_entry_set_size(output, static_cast<la_int64_t>(entry.size));
+        }
+        break;
+    case StagedEntryType::directory:
+        archive_entry_set_filetype(output, AE_IFDIR);
+        archive_entry_set_size(output, 0);
+        break;
+    case StagedEntryType::symbolic_link:
+        archive_entry_set_filetype(output, AE_IFLNK);
+        archive_entry_set_symlink(output, entry.symlink_target->c_str());
+        archive_entry_set_size(output, 0);
+        break;
+    case StagedEntryType::fifo:
+        archive_entry_set_filetype(output, AE_IFIFO);
+        archive_entry_set_size(output, 0);
+        break;
+    case StagedEntryType::character_device:
+        archive_entry_set_filetype(output, AE_IFCHR);
+        archive_entry_set_rdevmajor(output,
+                                    static_cast<la_int64_t>(entry.device->major));
+        archive_entry_set_rdevminor(output,
+                                    static_cast<la_int64_t>(entry.device->minor));
+        archive_entry_set_size(output, 0);
+        break;
+    case StagedEntryType::block_device:
+        archive_entry_set_filetype(output, AE_IFBLK);
+        archive_entry_set_rdevmajor(output,
+                                    static_cast<la_int64_t>(entry.device->major));
+        archive_entry_set_rdevminor(output,
+                                    static_cast<la_int64_t>(entry.device->minor));
+        archive_entry_set_size(output, 0);
+        break;
+    }
+}
+
+bool same_timestamp(const struct stat& status, const StagedEntry& entry)
+{
+    return static_cast<std::int64_t>(status.st_mtim.tv_sec) ==
+               entry.modification_time.seconds &&
+           static_cast<std::uint32_t>(status.st_mtim.tv_nsec) ==
+               entry.modification_time.nanoseconds;
+}
+
+void write_regular_file(archive* output,
+                        int root,
+                        const StagedEntry& entry)
+{
+    auto input = open_regular_beneath(root, entry.path);
+    struct stat before {};
+    if (fstat(input.get(), &before) != 0)
+        filesystem_error("cannot inspect staged package payload", entry.path);
+    if (!S_ISREG(before.st_mode) ||
+        static_cast<std::uint64_t>(before.st_size) != entry.size ||
+        !same_timestamp(before, entry))
+        throw Error(ErrorCode::archive_failed,
+                    "staged package payload changed after metadata capture: " +
+                        entry.path.string());
+
+    std::uint64_t total = 0;
+    char buffer[64 * 1024];
+    for (;;) {
+        const ssize_t count = read(input.get(), buffer, sizeof(buffer));
+        if (count > 0) {
+            total += static_cast<std::uint64_t>(count);
+            if (total > entry.size)
+                throw Error(ErrorCode::archive_failed,
+                            "staged package payload grew during archive creation: " +
+                                entry.path.string());
+
+            std::size_t offset = 0;
+            while (offset != static_cast<std::size_t>(count)) {
+                const auto written = archive_write_data(
+                    output, buffer + offset,
+                    static_cast<std::size_t>(count) - offset);
+                if (written < 0)
+                    archive_error(ErrorCode::archive_failed, output,
+                                  "writing package file");
+                if (written == 0)
+                    throw Error(ErrorCode::archive_failed,
+                                "package writer made no payload progress");
+                offset += static_cast<std::size_t>(written);
+            }
+            continue;
+        }
+        if (count == 0)
+            break;
+        if (errno == EINTR)
+            continue;
+        filesystem_error("cannot read staged package payload", entry.path);
+    }
+
+    struct stat after {};
+    if (fstat(input.get(), &after) != 0)
+        filesystem_error("cannot recheck staged package payload", entry.path);
+    if (total != entry.size || before.st_size != after.st_size ||
+        before.st_mtim.tv_sec != after.st_mtim.tv_sec ||
+        before.st_mtim.tv_nsec != after.st_mtim.tv_nsec)
+        throw Error(ErrorCode::archive_failed,
+                    "staged package payload changed during archive creation: " +
+                        entry.path.string());
 }
 
 } // namespace
@@ -202,9 +391,7 @@ bool LibarchiveBackend::supports(const ArchiveSpec&) const noexcept
 ArchiveReceipt LibarchiveBackend::write(const PackageWriteRequest& request,
                                         EventSink& events) const
 {
-    if (!std::filesystem::is_directory(request.package.root))
-        throw Error(ErrorCode::archive_failed,
-                    "package root is not a directory: " + request.package.root.string());
+    validate_staged_package(request.package);
 
     emit(events, EventKind::info,
          "Creating package '" + request.output.string() + "' with libarchive");
@@ -212,49 +399,39 @@ ArchiveReceipt LibarchiveBackend::write(const PackageWriteRequest& request,
     std::filesystem::create_directories(request.output.parent_path());
 
     ArchivePtr output(archive_write_new());
-    ArchivePtr disk(archive_read_disk_new());
-    if (!output || !disk)
+    if (!output)
         throw Error(ErrorCode::archive_failed,
-                    "cannot allocate libarchive handles");
+                    "cannot allocate libarchive output handle");
 
     configure_format(output.get(), request.archive.format);
     configure_filter(output.get(), request.archive.compression);
     archive_write_set_bytes_per_block(output.get(), 0);
 
-    if (archive_write_open_filename(output.get(), request.output.c_str()) != ARCHIVE_OK)
+    if (archive_write_open_filename(output.get(), request.output.c_str()) !=
+        ARCHIVE_OK)
         archive_error(ErrorCode::archive_failed, output.get(),
                       "opening package output");
 
-    archive_read_disk_set_standard_lookup(disk.get());
-    archive_read_disk_set_symlink_physical(disk.get());
-
-    const auto root = std::filesystem::absolute(request.package.root);
-    for (std::filesystem::recursive_directory_iterator iterator(root), end;
-         iterator != end; ++iterator) {
-        const auto path = iterator->path();
-        struct stat st {};
-        if (lstat(path.c_str(), &st) != 0)
-            throw Error(ErrorCode::archive_failed,
-                        "lstat failed for " + path.string() + ": " +
-                            std::strerror(errno));
-
+    auto root = open_root(request.package.root);
+    for (const auto& staged : request.package.entries) {
         EntryPtr entry(archive_entry_new());
-        archive_entry_set_pathname(entry.get(), path.c_str());
-        if (archive_read_disk_entry_from_file(disk.get(), entry.get(), -1, &st) !=
-            ARCHIVE_OK)
-            archive_error(ErrorCode::archive_failed, disk.get(),
-                          "reading package entry metadata");
-
-        const auto relative = path.lexically_relative(root).generic_string();
-        archive_entry_set_pathname(entry.get(), relative.c_str());
+        if (!entry)
+            throw Error(ErrorCode::archive_failed,
+                        "cannot allocate package archive entry");
+        configure_entry(entry.get(), staged);
 
         const int status = archive_write_header(output.get(), entry.get());
         if (status < ARCHIVE_WARN)
             archive_error(ErrorCode::archive_failed, output.get(),
                           "writing package entry header");
+        if (status >= ARCHIVE_WARN &&
+            staged.type == StagedEntryType::regular_file &&
+            !staged.hardlink_target)
+            write_regular_file(output.get(), root.get(), staged);
 
-        if (status == ARCHIVE_OK && S_ISREG(st.st_mode))
-            write_regular_file(output.get(), path);
+        if (archive_write_finish_entry(output.get()) != ARCHIVE_OK)
+            archive_error(ErrorCode::archive_failed, output.get(),
+                          "finishing package entry");
     }
 
     if (archive_write_close(output.get()) != ARCHIVE_OK)
