@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.5.0
+LIBPKGBUILD 0.6.0
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -76,6 +76,28 @@ was actually compressed.  A hardlink group spanning manual-page and
 non-manual locations is preserved unchanged rather than having its
 identity fractured.
 
+Footprint model
+---------------
+
+After trusted package-tree normalization, libpkgbuild derives a
+normalized Footprint directly from StagedPackage.  Footprint entries
+retain canonical package paths, object types, symbolic modes, numeric
+ownership, and symbolic-link targets.  Comparison returns structured
+added, removed, and changed entries rather than parsing textual diff
+output.
+
+The legacy `.footprint` codec resolves owner and group names to numeric
+identities, validates directory suffixes and symbolic-link records, and
+rejects malformed or duplicate package paths.  Serialization is sorted
+and deterministic, and replacement uses a temporary file beside the
+manifest followed by an atomic rename.
+
+BuildRequest exposes explicit ignore, compare, and write policies.
+Ordinary builds still ignore footprints by default.  A comparison
+mismatch throws FootprintMismatch carrying the complete structured
+difference before archive creation; a write policy must be requested
+explicitly and is recorded in BuildReceipt::footprint.
+
 Staged metadata model
 ---------------------
 
@@ -122,6 +144,7 @@ Implemented
 * Hardlink-safe ELF, shared-object, and ar archive stripping.
 * POSIX-BRE `.nostrip` normalization for Pkgfile definitions.
 * Deterministic, hardlink-safe manual-page compression and symlink rewrite.
+* Normalized footprint generation, legacy manifest parsing, comparison, and atomic replacement.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
 * Virtual ownership, symlink, hardlink, FIFO, and device-node archive
@@ -134,7 +157,6 @@ Implemented
 Not implemented yet
 -------------------
 
-* Footprint generation and checking.
 * Source mirrors.
 * Up-to-date checks and force policy.
 * Historical pkgmk CLI compatibility.

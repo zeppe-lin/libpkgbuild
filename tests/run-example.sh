@@ -41,8 +41,8 @@ fi
 	"$root/libpkgbuild/backends/curl.cpp" \
 	"$root/libpkgbuild/backends/libarchive.cpp" \
 	$(pkg-config --cflags --libs libarchive libcurl libcrypto zlib) \
-	-o "$build/libpkgbuild.so.0.5.0"
-ln -s libpkgbuild.so.0.5.0 "$build/libpkgbuild.so.0"
+	-o "$build/libpkgbuild.so.0.6.0"
+ln -s libpkgbuild.so.0.6.0 "$build/libpkgbuild.so.0"
 ln -s libpkgbuild.so.0 "$build/libpkgbuild.so"
 
 # shellcheck disable=SC2086

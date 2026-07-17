@@ -274,13 +274,44 @@ EntryMap index_entries(const Footprint& footprint)
 {
     EntryMap result;
     for (const auto& entry : footprint.entries) {
+        bool invalid_component = false;
+        for (const auto& component : entry.path) {
+            if (component.empty() || component == "." || component == "..") {
+                invalid_component = true;
+                break;
+            }
+        }
+        const auto path = entry.path.generic_string();
+        const bool unrepresentable =
+            path.find_first_of("\r\n") != std::string::npos ||
+            path.find(" -> ") != std::string::npos ||
+            (!path.empty() && (path.front() == ' ' || path.front() == '\t'));
         if (entry.path.empty() || entry.path.is_absolute() ||
-            entry.path != entry.path.lexically_normal())
-            throw Error(ErrorCode::invalid_definition,
+            entry.path != entry.path.lexically_normal() || invalid_component ||
+            unrepresentable)
+            throw Error(ErrorCode::invalid_footprint,
                         "invalid footprint path: " + entry.path.string());
+        if (entry.mode > 07777)
+            throw Error(ErrorCode::invalid_footprint,
+                        "invalid footprint mode for " + path);
+        if (entry.uid > static_cast<std::uint64_t>(
+                            std::numeric_limits<uid_t>::max()) ||
+            entry.gid > static_cast<std::uint64_t>(
+                            std::numeric_limits<gid_t>::max()))
+            throw Error(ErrorCode::invalid_footprint,
+                        "footprint ownership is out of range for " + path);
+        const bool symlink = entry.type == StagedEntryType::symbolic_link;
+        if (symlink != entry.symlink_target.has_value())
+            throw Error(ErrorCode::invalid_footprint,
+                        "invalid footprint symlink metadata for " + path);
+        if (entry.symlink_target &&
+            entry.symlink_target->find_first_of("\r\n") !=
+                std::string::npos)
+            throw Error(ErrorCode::invalid_footprint,
+                        "unrepresentable footprint symlink target for " + path);
         const auto [position, inserted] = result.emplace(entry.path, &entry);
         if (!inserted)
-            throw Error(ErrorCode::invalid_definition,
+            throw Error(ErrorCode::invalid_footprint,
                         "duplicate footprint path: " +
                             position->first.string());
     }
@@ -370,6 +401,9 @@ Footprint read_footprint(const std::filesystem::path& path)
             continue;
         footprint.entries.push_back(parse_entry(line, number));
     }
+    if (input.bad())
+        throw Error(ErrorCode::filesystem_failed,
+                    "cannot read footprint '" + path.string() + "'");
     (void)index_entries(footprint);
     std::sort(footprint.entries.begin(), footprint.entries.end(),
               [](const auto& left, const auto& right) {
@@ -421,6 +455,7 @@ void write_footprint(const std::filesystem::path& path,
                     "cannot create temporary footprint beside '" +
                         path.string() + "': " + std::strerror(errno));
     const std::filesystem::path temporary(storage.data());
+    bool descriptor_open = true;
     bool renamed = false;
     try {
         if (fchmod(descriptor, 0644) != 0)
@@ -432,7 +467,9 @@ void write_footprint(const std::filesystem::path& path,
             throw Error(ErrorCode::filesystem_failed,
                         "cannot sync footprint '" + temporary.string() +
                             "': " + std::strerror(errno));
-        if (close(descriptor) != 0)
+        const int close_status = close(descriptor);
+        descriptor_open = false;
+        if (close_status != 0)
             throw Error(ErrorCode::filesystem_failed,
                         "cannot close footprint '" + temporary.string() +
                             "': " + std::strerror(errno));
@@ -443,7 +480,8 @@ void write_footprint(const std::filesystem::path& path,
         renamed = true;
     } catch (...) {
         if (!renamed) {
-            (void)close(descriptor);
+            if (descriptor_open)
+                (void)close(descriptor);
             (void)unlink(temporary.c_str());
         }
         throw;

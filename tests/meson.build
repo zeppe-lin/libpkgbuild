@@ -115,3 +115,21 @@ test(
     strip_program.full_path(),
   ],
 )
+
+footprint_test = executable(
+  'footprint-test',
+  'footprint-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('footprint model', footprint_test)
+
+footprint_pipeline_test = executable(
+  'footprint-pipeline-test',
+  'footprint-pipeline-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('footprint pipeline', footprint_pipeline_test)
