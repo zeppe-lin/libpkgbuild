@@ -15,6 +15,10 @@ tar -C "$build/upstream" -czf "$archive_fixture/upstream.tar.gz" payload
 
 cxx=${CXX:-c++}
 common_cxxflags="-std=c++17 -Wall -Wextra -Wpedantic"
+build_user_args=
+if [ "$(id -u)" -eq 0 ]; then
+	build_user_args="--build-user nobody"
+fi
 
 # Intentional word splitting for compiler and pkg-config arguments.
 # shellcheck disable=SC2086,SC2046
@@ -40,7 +44,9 @@ ln -s libpkgbuild.so.0 "$build/libpkgbuild.so"
 	-L"$build" -Wl,-rpath,"$build" -lpkgbuild \
 	-o "$build/pkgbuild-example"
 
-"$build/pkgbuild-example" --helper "$root/libpkgbuild/pkgbuild-pkgfile.in" \
+# Intentional word splitting for the optional build-user arguments.
+# shellcheck disable=SC2086
+"$build/pkgbuild-example" $build_user_args --helper "$root/libpkgbuild/pkgbuild-pkgfile.in" \
 	--work-dir "$build/local-work" --package-dir "$build/packages" \
 	"$local_fixture"
 
@@ -48,7 +54,8 @@ test -f "$build/packages/hello#1.0-1.pkg.tar.gz"
 tar -tzf "$build/packages/hello#1.0-1.pkg.tar.gz" \
 	| grep -qx 'usr/share/hello/message.txt'
 
-"$build/pkgbuild-example" --download \
+# shellcheck disable=SC2086
+"$build/pkgbuild-example" $build_user_args --download \
 	--helper "$root/libpkgbuild/pkgbuild-pkgfile.in" \
 	--source-dir "$build/sources" \
 	--work-dir "$build/archive-work" \

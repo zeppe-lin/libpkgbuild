@@ -31,6 +31,8 @@ struct ProcessResult {
     }
 };
 
+void validate_execution_policy(const ExecutionPolicy& policy);
+
 class ProcessExecutor {
 public:
     virtual ~ProcessExecutor() = default;

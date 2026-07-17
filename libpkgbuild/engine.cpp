@@ -1,7 +1,12 @@
 #include <pkgbuild/engine.hpp>
 #include <pkgbuild/error.hpp>
+#include <pkgbuild/process.hpp>
 
+#include <cerrno>
+#include <cstring>
 #include <filesystem>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace pkgbuild {
 namespace {
@@ -32,17 +37,40 @@ std::filesystem::path local_source_path(const Source& source,
     return std::filesystem::absolute(paths.recipe_dir / source.local_name);
 }
 
+void change_owner(const std::filesystem::path& path,
+                  const BuildIdentity& identity)
+{
+    if (lchown(path.c_str(), identity.uid, identity.gid) != 0)
+        throw Error(ErrorCode::filesystem_failed,
+                    "cannot assign build workspace ownership for " +
+                        path.string() + ": " + std::strerror(errno));
+}
+
+void assign_workspace(const std::filesystem::path& root,
+                      const std::optional<BuildIdentity>& identity)
+{
+    if (!identity || geteuid() != 0)
+        return;
+
+    change_owner(root, *identity);
+    for (std::filesystem::recursive_directory_iterator iterator(root), end;
+         iterator != end; ++iterator)
+        change_owner(iterator->path(), *identity);
+}
+
 } // namespace
 
 PackageDefinition Engine::inspect(const DefinitionRequest& request,
                                   EventSink& events) const
 {
+    validate_execution_policy(request.execution);
     return services_.definitions.load(request, events);
 }
 
 BuildReceipt Engine::build(const BuildRequest& request,
                            EventSink& events) const
 {
+    validate_execution_policy(request.definition.execution);
     const auto definition = inspect(request.definition, events);
     const auto& paths = request.definition.paths;
 
@@ -51,11 +79,14 @@ BuildReceipt Engine::build(const BuildRequest& request,
 
     const auto source_root = std::filesystem::absolute(paths.work_dir / "src");
     const auto package_root = std::filesystem::absolute(paths.work_dir / "pkg");
+    const auto temporary_root = std::filesystem::absolute(paths.work_dir / "tmp");
 
     std::filesystem::remove_all(paths.work_dir);
     std::filesystem::create_directories(source_root);
     std::filesystem::create_directories(package_root);
+    std::filesystem::create_directories(temporary_root);
     WorkGuard work(paths.work_dir, request.keep_work);
+    assign_workspace(paths.work_dir, request.definition.execution.identity);
 
     BuildReceipt receipt;
     receipt.definition = definition;
@@ -90,6 +121,7 @@ BuildReceipt Engine::build(const BuildRequest& request,
         }
     }
 
+    assign_workspace(paths.work_dir, request.definition.execution.identity);
     services_.recipes.run(
         RecipeRequest{definition, paths, source_root, package_root,
                       request.definition.execution}, events);

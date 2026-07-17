@@ -12,6 +12,10 @@
 #include <array>
 #include <cstdlib>
 #include <map>
+#include <grp.h>
+#include <pwd.h>
+#include <unistd.h>
+#include <vector>
 
 #ifndef PKGBUILD_PKGFILE_HELPER
 #define PKGBUILD_PKGFILE_HELPER "/usr/libexec/pkgbuild-pkgfile"
@@ -45,6 +49,7 @@ public:
            << "      --package-dir DIR    package output directory\n"
            << "      --work-dir DIR       temporary work directory\n"
            << "      --helper FILE        pkgfile/0 worker path\n"
+           << "      --build-user USER    execute Pkgfile as USER\n"
            << "  -h, --help               show this help\n";
     std::exit(status);
 }
@@ -62,6 +67,35 @@ std::map<std::string, std::string> selected_environment()
             result.emplace(name, value);
     }
     return result;
+}
+
+
+pkgbuild::BuildIdentity build_identity(const std::string& name)
+{
+    std::vector<char> buffer(16384);
+    struct passwd record {};
+    struct passwd* result = nullptr;
+    const int status = getpwnam_r(name.c_str(), &record, buffer.data(),
+                                  buffer.size(), &result);
+    if (status != 0 || result == nullptr)
+        throw std::runtime_error("unknown build user: " + name);
+
+    int group_count = 0;
+    (void)getgrouplist(record.pw_name, record.pw_gid, nullptr, &group_count);
+    std::vector<gid_t> groups(static_cast<std::size_t>(group_count));
+    if (group_count != 0 &&
+        getgrouplist(record.pw_name, record.pw_gid, groups.data(),
+                     &group_count) < 0)
+        throw std::runtime_error("cannot read groups for build user: " + name);
+    groups.resize(static_cast<std::size_t>(group_count));
+
+    return pkgbuild::BuildIdentity{
+        record.pw_uid,
+        record.pw_gid,
+        std::move(groups),
+        record.pw_dir ? record.pw_dir : "/",
+        record.pw_name,
+    };
 }
 
 std::string require_argument(int& index, int argc, char** argv)
@@ -82,6 +116,7 @@ int main(int argc, char** argv)
         std::optional<std::filesystem::path> package_dir;
         std::optional<std::filesystem::path> work_dir;
         std::filesystem::path helper = PKGBUILD_PKGFILE_HELPER;
+        std::optional<std::string> build_user;
         bool download = false;
         bool keep_work = false;
 
@@ -101,6 +136,8 @@ int main(int argc, char** argv)
                 work_dir = require_argument(i, argc, argv);
             } else if (option == "--helper") {
                 helper = require_argument(i, argc, argv);
+            } else if (option == "--build-user") {
+                build_user = require_argument(i, argc, argv);
             } else if (option == "-h" || option == "--help") {
                 usage(argv[0], 0);
             } else if (!option.empty() && option[0] == '-') {
@@ -139,7 +176,10 @@ int main(int argc, char** argv)
                 config_file,
                 pkgbuild::ArchiveSpec{},
                 pkgbuild::ExecutionPolicy{
-                    std::nullopt,
+                    build_user ?
+                        std::optional<pkgbuild::BuildIdentity>(
+                            build_identity(*build_user)) :
+                        std::nullopt,
                     selected_environment(),
                     0022,
                 },

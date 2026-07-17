@@ -188,11 +188,48 @@ std::optional<ChildFailure> read_child_failure(int fd)
 
 } // namespace
 
+void validate_execution_policy(const ExecutionPolicy& policy)
+{
+    if (!policy.identity) {
+        if (geteuid() == 0)
+            throw Error(ErrorCode::invalid_configuration,
+                        "root caller requires an explicit non-root build identity");
+        return;
+    }
+
+    const auto& identity = *policy.identity;
+    if (identity.uid == 0 || identity.gid == 0)
+        throw Error(ErrorCode::invalid_configuration,
+                    "build identity must not use the root user or group");
+    for (const gid_t group : identity.supplementary_groups) {
+        if (group == 0)
+            throw Error(ErrorCode::invalid_configuration,
+                        "build identity must not retain the root group");
+    }
+    if (identity.user.empty())
+        throw Error(ErrorCode::invalid_configuration,
+                    "build identity requires a user name");
+    if (identity.home.empty() || !identity.home.is_absolute())
+        throw Error(ErrorCode::invalid_configuration,
+                    "build identity requires an absolute home directory");
+
+    if (geteuid() != 0 &&
+        (identity.uid != geteuid() || identity.gid != getegid()))
+        throw Error(ErrorCode::invalid_configuration,
+                    "unprivileged caller cannot select another build identity");
+}
+
 ProcessResult PosixProcessExecutor::execute(const ProcessRequest& request) const
 {
     if (request.program.empty() || !request.program.is_absolute())
         throw Error(ErrorCode::invalid_configuration,
                     "process program must be an absolute path");
+
+    validate_execution_policy(ExecutionPolicy{
+        request.identity,
+        request.environment,
+        request.file_creation_mask,
+    });
 
     int output_pipe[2] = {-1, -1};
     int failure_pipe[2] = {-1, -1};
