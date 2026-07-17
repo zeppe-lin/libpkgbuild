@@ -124,4 +124,14 @@ if libpkgimage_dep.found()
     dependencies: [libpkgimage_dep, libcrypto_dep],
     install: false,
   )
+
+
+  executable(
+    'pkgbuild-parity',
+    ['tools/pkgbuild-parity.cpp', parity_compare_sources],
+    include_directories: include_directories('tools'),
+    dependencies: [pkgbuild_dep, libpkgimage_dep, libcrypto_dep],
+    cpp_args: [helper_define, scanner_define, strip_define],
+    install: false,
+  )
 endif
