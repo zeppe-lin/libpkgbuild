@@ -6,11 +6,15 @@
 #include "../process.hpp"
 #include "../stage.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
 #include <cstdlib>
+#include <fstream>
+#include <map>
 #include <pwd.h>
 #include <sstream>
 #include <sys/stat.h>
@@ -32,6 +36,121 @@ std::vector<std::string> split_sources(const std::string& value)
     while (input >> item)
         sources.push_back(std::move(item));
     return sources;
+}
+
+std::string trim(std::string value)
+{
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos)
+        return {};
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+
+std::string lowercase(std::string value)
+{
+    for (char& character : value)
+        character = static_cast<char>(
+            std::tolower(static_cast<unsigned char>(character)));
+    return value;
+}
+
+Digest parse_md5(const std::string& value, std::size_t line)
+{
+    const std::string normalized = lowercase(value);
+    if (normalized.size() != 32 ||
+        !std::all_of(normalized.begin(), normalized.end(),
+                     [](unsigned char character) {
+                         return std::isxdigit(character) != 0;
+                     }))
+        throw Error(ErrorCode::invalid_definition,
+                    "invalid MD5 digest on .md5sum line " +
+                        std::to_string(line));
+    return Digest{DigestAlgorithm::md5, normalized};
+}
+
+std::map<std::string, Digest>
+read_md5_manifest(const std::filesystem::path& path)
+{
+    std::ifstream input(path);
+    if (!input)
+        throw Error(ErrorCode::invalid_definition,
+                    "checksum manifest not found: " + path.string());
+
+    std::map<std::string, Digest> manifest;
+    std::string line;
+    std::size_t line_number = 0;
+    while (std::getline(input, line)) {
+        ++line_number;
+        line = trim(std::move(line));
+        if (line.empty() || line.front() == '#')
+            continue;
+
+        std::istringstream fields(line);
+        std::string checksum;
+        fields >> checksum;
+        std::string filename;
+        std::getline(fields, filename);
+        filename = trim(std::move(filename));
+        if (filename.empty())
+            throw Error(ErrorCode::invalid_definition,
+                        "missing filename on .md5sum line " +
+                            std::to_string(line_number));
+        if (filename.front() == '*')
+            throw Error(ErrorCode::invalid_definition,
+                        "binary-mode .md5sum entries are not supported");
+
+        const std::filesystem::path name(filename);
+        if (name.is_absolute() || name.filename() != name ||
+            name == "." || name == "..")
+            throw Error(ErrorCode::invalid_definition,
+                        "invalid filename on .md5sum line " +
+                            std::to_string(line_number) + ": " + filename);
+
+        if (!manifest.emplace(filename, parse_md5(checksum, line_number)).second)
+            throw Error(ErrorCode::invalid_definition,
+                        "duplicate .md5sum entry for " + filename);
+    }
+    return manifest;
+}
+
+void attach_md5_manifest(std::vector<Source>& sources,
+                         const std::filesystem::path& recipe_directory)
+{
+    const auto manifest_path = recipe_directory / ".md5sum";
+    if (sources.empty()) {
+        if (!std::filesystem::exists(manifest_path))
+            return;
+        const auto manifest = read_md5_manifest(manifest_path);
+        if (!manifest.empty())
+            throw Error(ErrorCode::invalid_definition,
+                        ".md5sum contains entries but Pkgfile has no sources");
+        return;
+    }
+
+    auto manifest = read_md5_manifest(manifest_path);
+    std::map<std::string, bool> declared;
+    for (auto& source : sources) {
+        const std::string filename = source.local_name.filename().string();
+        if (filename.empty())
+            throw Error(ErrorCode::invalid_definition,
+                        "source has no checksum filename: " +
+                            source.declaration);
+        if (!declared.emplace(filename, true).second)
+            throw Error(ErrorCode::invalid_definition,
+                        "multiple sources use checksum filename: " + filename);
+
+        const auto item = manifest.find(filename);
+        if (item == manifest.end())
+            throw Error(ErrorCode::invalid_definition,
+                        "missing .md5sum entry for " + filename);
+        source.digests.push_back(item->second);
+        manifest.erase(item);
+    }
+
+    if (!manifest.empty())
+        throw Error(ErrorCode::invalid_definition,
+                    "unknown .md5sum entry for " + manifest.begin()->first);
 }
 
 std::vector<std::string> common_arguments(const DefinitionRequest& request)
@@ -191,6 +310,8 @@ PackageDefinition PkgfileDefinitionLoader::load(const DefinitionRequest& request
     definition.id = PackageId{fields[1], fields[2], fields[3]};
     for (const auto& source : split_sources(fields[4]))
         definition.sources.push_back(parse_source(source));
+    attach_md5_manifest(definition.sources,
+                        std::filesystem::absolute(request.paths.recipe_dir));
     definition.archive = ArchiveSpec{
         archive_format_from_string(fields[5]),
         compression_from_string(fields[6]),

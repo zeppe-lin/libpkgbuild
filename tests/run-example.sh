@@ -5,13 +5,17 @@ root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 build=$root/.example-build
 local_fixture=$root/tests/fixtures/hello
 archive_fixture=$root/tests/fixtures/hello-archive
+archive_md5=$archive_fixture/.md5sum
 
 rm -rf "$build" "$local_fixture/work" "$archive_fixture/work"
-rm -f "$local_fixture"/*.pkg.tar.* "$archive_fixture"/*.pkg.tar.*
+rm -f "$local_fixture"/*.pkg.tar.* "$archive_fixture"/*.pkg.tar.* "$archive_md5"
+trap 'rm -f "$archive_md5"' EXIT HUP INT TERM
 mkdir -p "$build" "$build/upstream/payload"
 printf '%s\n' 'hello through curl and libarchive' \
 	> "$build/upstream/payload/message.txt"
 tar -C "$build/upstream" -czf "$archive_fixture/upstream.tar.gz" payload
+md5sum "$archive_fixture/upstream.tar.gz" \
+	| sed 's|  .*|  payload.tar.gz|' > "$archive_md5"
 
 cxx=${CXX:-c++}
 common_cxxflags="-std=c++17 -Wall -Wextra -Wpedantic"
