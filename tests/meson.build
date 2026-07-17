@@ -42,3 +42,36 @@ test(
     fakeroot_program.full_path(),
   ],
 )
+
+source_verifier_test = executable(
+  'source-verifier-test',
+  'source-verifier-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('source verifier', source_verifier_test)
+
+pkgfile_checksum_test = executable(
+  'pkgfile-checksum-test',
+  'pkgfile-checksum-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test(
+  'Pkgfile checksum manifest',
+  pkgfile_checksum_test,
+  args: [
+    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+  ],
+)
+
+source_integrity_test = executable(
+  'source-integrity-test',
+  'source-integrity-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('source integrity pipeline', source_integrity_test)

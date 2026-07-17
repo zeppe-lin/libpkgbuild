@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.3.0
+LIBPKGBUILD 0.4.0
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -24,6 +24,32 @@ therefore treats process authority as an explicit input:
 
 The reference frontend accepts `--build-user USER`.  Recipe execution
 never needs real root authority.
+
+Source integrity model
+----------------------
+
+The Pkgfile backend parses `.md5sum` as data after Pkgfile inspection
+and binds every declared source to exactly one typed digest.  Missing,
+malformed, duplicate, ambiguous, or unrelated entries are rejected.
+The backend does not silently create a missing checksum manifest; that
+is an explicit maintenance operation rather than part of a build.
+
+Cached and newly downloaded sources follow the same verification path.
+The OpenSSL EVP verifier supports MD5, SHA-256, SHA-512, and BLAKE2b-512
+through the normalized API.  Legacy Pkgfile definitions currently map
+`.md5sum` entries to MD5 for compatibility with pkgmk.
+
+A successful check returns a move-only VerifiedSource that owns the
+file descriptor which was hashed.  Source copying and libarchive
+extraction consume a duplicate of that descriptor rather than reopening
+the pathname.  The same source is rehashed after consumption, so either
+pathname replacement or mutation during use cannot introduce unverified
+bytes into the recipe workspace.  Successful checks are retained in
+`BuildReceipt::verifications`.
+
+MD5 remains suitable only for legacy accidental-corruption detection;
+it is not a malicious-content authentication mechanism.  Stronger
+digest algorithms are available to non-Pkgfile definition backends.
 
 Staged metadata model
 ---------------------
@@ -64,6 +90,8 @@ Implemented
 * Fakeroot-backed staged metadata capture.
 * Normalized StagedPackage model and manifest protocol.
 * Downloader abstraction with a libcurl implementation.
+* Typed source digests and descriptor-stable OpenSSL verification.
+* Strict legacy `.md5sum` normalization for Pkgfile definitions.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
 * Virtual ownership, symlink, hardlink, FIFO, and device-node archive
@@ -76,7 +104,6 @@ Implemented
 Not implemented yet
 -------------------
 
-* Checksums.
 * Footprint generation and checking.
 * Binary stripping and manual-page compression.
 * Source mirrors.
