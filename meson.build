@@ -25,6 +25,8 @@ cpp = meson.get_compiler('cpp')
 helper_define = '-DPKGBUILD_PKGFILE_HELPER="' + pkgfile_helper + '"'
 scanner_path = join_paths(get_option('prefix'), get_option('libexecdir'), 'pkgbuild-stage-scan')
 scanner_define = '-DPKGBUILD_STAGE_SCANNER="' + scanner_path + '"'
+strip_program = find_program('strip', required: true)
+strip_define = '-DPKGBUILD_STRIP="' + strip_program.full_path() + '"'
 
 inc = include_directories('include')
 
@@ -95,7 +97,7 @@ executable(
   'tools/pkgbuild-example.cpp',
   include_directories: inc,
   dependencies: pkgbuild_dep,
-  cpp_args: [helper_define, scanner_define],
+  cpp_args: [helper_define, scanner_define, strip_define],
   install: false,
 )
 

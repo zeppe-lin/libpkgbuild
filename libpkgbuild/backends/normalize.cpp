@@ -7,7 +7,10 @@
 #include <cstring>
 #include <fcntl.h>
 #include <map>
+#include <memory>
+#include <regex.h>
 #include <set>
+#include <string_view>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <utility>
@@ -254,6 +257,402 @@ resolved_symlink_target(const StagedEntry& entry)
     return resolved;
 }
 
+
+enum class StripMode {
+    none,
+    all,
+    unneeded,
+    debug,
+};
+
+std::uint16_t read_u16(const unsigned char* data, bool little_endian)
+{
+    if (little_endian)
+        return static_cast<std::uint16_t>(data[0]) |
+               static_cast<std::uint16_t>(data[1] << 8U);
+    return static_cast<std::uint16_t>(data[1]) |
+           static_cast<std::uint16_t>(data[0] << 8U);
+}
+
+std::uint32_t read_u32(const unsigned char* data, bool little_endian)
+{
+    std::uint32_t value = 0;
+    for (unsigned int index = 0; index != 4; ++index) {
+        const unsigned int source = little_endian ? index : 3U - index;
+        value |= static_cast<std::uint32_t>(data[source]) << (index * 8U);
+    }
+    return value;
+}
+
+std::uint64_t read_u64(const unsigned char* data, bool little_endian)
+{
+    std::uint64_t value = 0;
+    for (unsigned int index = 0; index != 8; ++index) {
+        const unsigned int source = little_endian ? index : 7U - index;
+        value |= static_cast<std::uint64_t>(data[source]) << (index * 8U);
+    }
+    return value;
+}
+
+bool has_program_interpreter(int descriptor,
+                             const unsigned char* header,
+                             std::size_t header_size,
+                             bool little_endian)
+{
+    const bool elf64 = header[4] == 2;
+    const std::size_t required = elf64 ? 58 : 46;
+    if (header_size < required)
+        return false;
+
+    const std::uint64_t offset = elf64
+        ? read_u64(header + 32, little_endian)
+        : read_u32(header + 28, little_endian);
+    const std::uint16_t entry_size = read_u16(
+        header + (elf64 ? 54 : 42), little_endian);
+    const std::uint16_t count = read_u16(
+        header + (elf64 ? 56 : 44), little_endian);
+    if (entry_size < 4 || count == 0 || count > 4096)
+        return false;
+
+    struct stat status {};
+    if (fstat(descriptor, &status) != 0)
+        return false;
+    const auto file_size = static_cast<std::uint64_t>(status.st_size);
+    if (offset > file_size ||
+        static_cast<std::uint64_t>(entry_size) * count > file_size - offset)
+        return false;
+
+    unsigned char type[4] {};
+    for (std::uint16_t index = 0; index != count; ++index) {
+        const off_t position = static_cast<off_t>(
+            offset + static_cast<std::uint64_t>(entry_size) * index);
+        ssize_t read_count = 0;
+        do {
+            read_count = pread(descriptor, type, sizeof(type), position);
+        } while (read_count < 0 && errno == EINTR);
+        if (read_count != static_cast<ssize_t>(sizeof(type)))
+            return false;
+        if (read_u32(type, little_endian) == 3)
+            return true;
+    }
+    return false;
+}
+
+StripMode strip_mode(const std::filesystem::path& path)
+{
+    FileDescriptor input(open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    if (input.get() < 0)
+        filesystem_error("cannot open strip candidate", path);
+
+    unsigned char header[64] {};
+    ssize_t count = 0;
+    do {
+        count = read(input.get(), header, sizeof(header));
+    } while (count < 0 && errno == EINTR);
+    if (count < 0)
+        filesystem_error("cannot read strip candidate", path);
+
+    if (count >= 18 && header[0] == 0x7f && header[1] == 'E' &&
+        header[2] == 'L' && header[3] == 'F' &&
+        (header[4] == 1 || header[4] == 2) &&
+        (header[5] == 1 || header[5] == 2)) {
+        const bool little_endian = header[5] == 1;
+        const auto type = read_u16(header + 16, little_endian);
+        if (type == 2)
+            return StripMode::all;
+        if (type == 3)
+            return has_program_interpreter(
+                       input.get(), header, static_cast<std::size_t>(count),
+                       little_endian)
+                ? StripMode::all
+                : StripMode::unneeded;
+    }
+
+    static constexpr std::string_view ar = "!<arch>\n";
+    if (count >= 8 && std::equal(ar.begin(), ar.end(), header))
+        return StripMode::debug;
+    return StripMode::none;
+}
+
+const char* strip_option(StripMode mode)
+{
+    switch (mode) {
+    case StripMode::all: return "--strip-all";
+    case StripMode::unneeded: return "--strip-unneeded";
+    case StripMode::debug: return "--strip-debug";
+    case StripMode::none: break;
+    }
+    return "";
+}
+
+class BasicRegex final {
+public:
+    explicit BasicRegex(const std::string& pattern)
+    {
+        const int status = regcomp(&value_, pattern.c_str(), REG_NOSUB);
+        if (status != 0) {
+            char message[256] {};
+            (void)regerror(status, &value_, message, sizeof(message));
+            throw Error(ErrorCode::invalid_definition,
+                        "invalid strip exclusion pattern: " +
+                            std::string(message));
+        }
+        valid_ = true;
+    }
+
+    ~BasicRegex()
+    {
+        if (valid_)
+            regfree(&value_);
+    }
+
+    BasicRegex(const BasicRegex&) = delete;
+    BasicRegex& operator=(const BasicRegex&) = delete;
+
+    bool matches(const std::string& value) const
+    {
+        return regexec(&value_, value.c_str(), 0, nullptr, 0) == 0;
+    }
+
+private:
+    regex_t value_ {};
+    bool valid_{false};
+};
+
+std::vector<std::unique_ptr<BasicRegex>>
+compile_exclusions(const std::vector<std::string>& patterns)
+{
+    std::vector<std::unique_ptr<BasicRegex>> result;
+    result.reserve(patterns.size());
+    for (const auto& pattern : patterns)
+        result.push_back(std::make_unique<BasicRegex>(pattern));
+    return result;
+}
+
+bool excluded(const std::vector<std::unique_ptr<BasicRegex>>& patterns,
+              const std::filesystem::path& path)
+{
+    const auto value = path.generic_string();
+    return std::any_of(patterns.begin(), patterns.end(),
+                       [&](const auto& pattern) {
+                           return pattern->matches(value);
+                       });
+}
+
+std::pair<FileDescriptor, std::filesystem::path>
+create_temporary_copy(const std::filesystem::path& input_path,
+                      const ExecutionPolicy& execution)
+{
+    FileDescriptor input(open(input_path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    if (input.get() < 0)
+        filesystem_error("cannot open strip input", input_path);
+
+    struct stat status {};
+    if (fstat(input.get(), &status) != 0)
+        filesystem_error("cannot inspect strip input", input_path);
+    if (!S_ISREG(status.st_mode))
+        throw Error(ErrorCode::transformation_failed,
+                    "strip input is not a regular file: " + input_path.string());
+
+    std::string pattern = (input_path.parent_path() /
+                           (".pkgbuild-strip." +
+                            input_path.filename().string() + ".XXXXXX")).string();
+    std::vector<char> storage(pattern.begin(), pattern.end());
+    storage.push_back('\0');
+    const int descriptor = mkstemp(storage.data());
+    if (descriptor < 0)
+        filesystem_error("cannot create strip temporary", input_path);
+    FileDescriptor output(descriptor);
+    const std::filesystem::path temporary(storage.data());
+
+    try {
+        if (execution.identity && geteuid() == 0 &&
+            fchown(output.get(), execution.identity->uid,
+                   execution.identity->gid) != 0)
+            filesystem_error("cannot assign strip temporary", temporary);
+        if (fchmod(output.get(), status.st_mode & 0777) != 0)
+            filesystem_error("cannot set strip temporary mode", temporary);
+
+        char buffer[64 * 1024];
+        for (;;) {
+            ssize_t count = 0;
+            do {
+                count = read(input.get(), buffer, sizeof(buffer));
+            } while (count < 0 && errno == EINTR);
+            if (count < 0)
+                filesystem_error("cannot read strip input", input_path);
+            if (count == 0)
+                break;
+            write_all(output.get(), reinterpret_cast<unsigned char*>(buffer),
+                      static_cast<std::size_t>(count), temporary);
+        }
+    } catch (...) {
+        (void)unlink(temporary.c_str());
+        throw;
+    }
+    return {std::move(output), temporary};
+}
+
+std::filesystem::path backup_path(const std::filesystem::path& path,
+                                  std::size_t sequence)
+{
+    return path.parent_path() /
+           (".pkgbuild-backup." + path.filename().string() + "." +
+            std::to_string(static_cast<long long>(getpid())) + "." +
+            std::to_string(sequence));
+}
+
+void install_transformed_group(const StagedPackage& package,
+                               const std::vector<std::size_t>& indices,
+                               const std::filesystem::path& temporary)
+{
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> backups;
+    backups.reserve(indices.size());
+    for (std::size_t item = 0; item != indices.size(); ++item) {
+        const auto original = package.root / package.entries[indices[item]].path;
+        const auto backup = backup_path(original, item);
+        if (path_exists(backup))
+            throw Error(ErrorCode::transformation_failed,
+                        "strip backup already exists: " + backup.string());
+        backups.emplace_back(original, backup);
+    }
+
+    std::size_t moved = 0;
+    std::size_t installed = 0;
+    try {
+        for (; moved != backups.size(); ++moved) {
+            if (rename(backups[moved].first.c_str(),
+                       backups[moved].second.c_str()) != 0)
+                filesystem_error("cannot back up strip input",
+                                 backups[moved].first);
+        }
+
+        const auto canonical = backups.front().first;
+        if (rename(temporary.c_str(), canonical.c_str()) != 0)
+            filesystem_error("cannot install stripped file", canonical);
+        installed = 1;
+
+        for (; installed != backups.size(); ++installed) {
+            if (link(canonical.c_str(), backups[installed].first.c_str()) != 0)
+                filesystem_error("cannot relink stripped hardlink",
+                                 backups[installed].first);
+        }
+    } catch (...) {
+        (void)unlink(temporary.c_str());
+        for (std::size_t item = 0; item != installed; ++item)
+            (void)unlink(backups[item].first.c_str());
+        for (std::size_t item = 0; item != moved; ++item) {
+            if (path_exists(backups[item].second))
+                (void)rename(backups[item].second.c_str(),
+                             backups[item].first.c_str());
+        }
+        throw;
+    }
+
+    for (const auto& [original, backup] : backups) {
+        (void)original;
+        if (unlink(backup.c_str()) != 0)
+            filesystem_error("cannot remove strip backup", backup);
+    }
+}
+
+void strip_binaries(StagedPackage& package,
+                    const PackageDefinition& definition,
+                    const ExecutionPolicy& execution,
+                    const std::filesystem::path& strip_program,
+                    const ProcessExecutor& processes,
+                    TransformationReceipt& receipt,
+                    EventSink& events)
+{
+    if (strip_program.empty() || !strip_program.is_absolute())
+        throw Error(ErrorCode::invalid_configuration,
+                    "strip program must be an absolute path");
+
+    const auto exclusions = compile_exclusions(definition.strip_exclusions);
+    const auto groups = regular_groups(package);
+    for (const auto& [canonical, indices] : groups) {
+        const auto full = package.root / canonical;
+        const auto mode = strip_mode(full);
+        if (mode == StripMode::none)
+            continue;
+
+        if (std::any_of(indices.begin(), indices.end(), [&](std::size_t index) {
+                return excluded(exclusions, package.entries[index].path);
+            })) {
+            emit(events, EventKind::info,
+                 "Not stripping excluded hardlink group containing '" +
+                     canonical.string() + "'");
+            continue;
+        }
+
+        const auto identity = regular_identity(full);
+        for (const auto index : indices) {
+            const auto current = regular_identity(package.root /
+                                                  package.entries[index].path);
+            if (current.device != identity.device || current.inode != identity.inode)
+                throw Error(ErrorCode::transformation_failed,
+                            "staged hardlink group changed before stripping: " +
+                                package.entries[index].path.string());
+        }
+
+        const auto bytes_before = package.entries[indices.front()].size;
+        auto [temporary_descriptor, temporary] =
+            create_temporary_copy(full, execution);
+        (void)temporary_descriptor;
+
+        emit(events, EventKind::command,
+             "Stripping '" + canonical.string() + "'");
+        const auto process = processes.execute(ProcessRequest{
+            strip_program,
+            {strip_option(mode), temporary.string()},
+            package.root,
+            execution.environment,
+            execution.identity,
+            execution.file_creation_mask,
+            false,
+            true,
+        });
+        if (!process.ok()) {
+            (void)unlink(temporary.c_str());
+            throw Error(ErrorCode::transformation_failed,
+                        "strip failed for " + canonical.string() +
+                            " with status " +
+                            std::to_string(process.exit_status));
+        }
+
+        struct stat transformed {};
+        if (lstat(temporary.c_str(), &transformed) != 0)
+            filesystem_error("cannot inspect stripped file", temporary);
+        if (!S_ISREG(transformed.st_mode))
+            throw Error(ErrorCode::transformation_failed,
+                        "strip output is not a regular file: " +
+                            temporary.string());
+
+        install_transformed_group(package, indices, temporary);
+        const StagedTime time{
+            static_cast<std::int64_t>(transformed.st_mtim.tv_sec),
+            static_cast<std::uint32_t>(transformed.st_mtim.tv_nsec),
+        };
+        for (const auto index : indices) {
+            package.entries[index].size =
+                static_cast<std::uint64_t>(transformed.st_size);
+            package.entries[index].modification_time = time;
+        }
+
+        std::vector<std::filesystem::path> paths;
+        paths.reserve(indices.size());
+        for (const auto index : indices)
+            paths.push_back(package.entries[index].path);
+        receipt.changes.push_back(TransformationChange{
+            TransformationKind::strip_binary,
+            paths,
+            std::move(paths),
+            bytes_before,
+            static_cast<std::uintmax_t>(transformed.st_size),
+        });
+    }
+}
+
 void sort_entries(StagedPackage& package)
 {
     std::sort(package.entries.begin(), package.entries.end(),
@@ -413,6 +812,9 @@ TransformationReceipt PackageTreeTransformer::transform(
 {
     validate_staged_package(request.package);
     TransformationReceipt receipt{std::string(name()), {}};
+    if (request.policy.strip_binaries)
+        strip_binaries(request.package, request.definition, request.execution,
+                       strip_program_, processes_, receipt, events);
     if (request.policy.compress_manpages)
         compress_manpages(request.package, receipt, events);
     validate_staged_package(request.package);

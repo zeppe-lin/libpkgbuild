@@ -56,6 +56,7 @@ ln -s libpkgbuild.so.0 "$build/libpkgbuild.so"
 	-I"$root/include" \
 	-DPKGBUILD_PKGFILE_HELPER=\"$root/libpkgbuild/pkgbuild-pkgfile.in\" \
 	-DPKGBUILD_STAGE_SCANNER=\"$build/pkgbuild-stage-scan\" \
+	-DPKGBUILD_STRIP=\"/usr/bin/strip\" \
 	"$root/tools/pkgbuild-example.cpp" \
 	-L"$build" -Wl,-rpath,"$build" -lpkgbuild \
 	-o "$build/pkgbuild-example"

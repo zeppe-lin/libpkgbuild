@@ -16,6 +16,7 @@
 #include <fstream>
 #include <map>
 #include <pwd.h>
+#include <regex.h>
 #include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -112,6 +113,40 @@ read_md5_manifest(const std::filesystem::path& path)
                         "duplicate .md5sum entry for " + filename);
     }
     return manifest;
+}
+
+std::vector<std::string>
+read_strip_exclusions(const std::filesystem::path& recipe_directory)
+{
+    const auto path = recipe_directory / ".nostrip";
+    std::ifstream input(path);
+    if (!input) {
+        if (!std::filesystem::exists(path))
+            return {};
+        throw Error(ErrorCode::invalid_definition,
+                    "cannot read strip exclusion file: " + path.string());
+    }
+
+    std::vector<std::string> patterns;
+    std::string pattern;
+    std::size_t line = 0;
+    while (std::getline(input, pattern)) {
+        ++line;
+        if (!pattern.empty() && pattern.back() == '\r')
+            pattern.pop_back();
+        regex_t expression {};
+        const int status = regcomp(&expression, pattern.c_str(), REG_NOSUB);
+        if (status != 0) {
+            char message[256] {};
+            (void)regerror(status, &expression, message, sizeof(message));
+            throw Error(ErrorCode::invalid_definition,
+                        "invalid .nostrip pattern on line " +
+                            std::to_string(line) + ": " + message);
+        }
+        regfree(&expression);
+        patterns.push_back(pattern);
+    }
+    return patterns;
 }
 
 void attach_md5_manifest(std::vector<Source>& sources,
@@ -316,6 +351,8 @@ PackageDefinition PkgfileDefinitionLoader::load(const DefinitionRequest& request
         archive_format_from_string(fields[5]),
         compression_from_string(fields[6]),
     };
+    definition.strip_exclusions = read_strip_exclusions(
+        std::filesystem::absolute(request.paths.recipe_dir));
     definition.recipe = Recipe{
         RecipeFormat::pkgfile_v0,
         std::filesystem::absolute(request.paths.recipe_dir / "Pkgfile"),

@@ -84,3 +84,16 @@ manpage_transform_test = executable(
 )
 
 test('man page transformation', manpage_transform_test)
+
+strip_transform_test = executable(
+  'strip-transform-test',
+  'strip-transform-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test(
+  'binary transformation',
+  strip_transform_test,
+  args: [strip_program.full_path()],
+)

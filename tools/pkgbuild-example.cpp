@@ -32,6 +32,10 @@
 #define PKGBUILD_FAKEROOT "/usr/bin/fakeroot"
 #endif
 
+#ifndef PKGBUILD_STRIP
+#define PKGBUILD_STRIP "/usr/bin/strip"
+#endif
+
 namespace {
 
 class TerminalEvents final : public pkgbuild::EventSink {
@@ -63,6 +67,7 @@ public:
            << "      --scanner FILE       staged metadata scanner path\n"
            << "      --fakeroot FILE      fakeroot frontend path\n"
            << "      --build-user USER    execute Pkgfile as USER\n"
+           << "      --strip FILE         binary stripping program\n"
            << "  -h, --help               show this help\n";
     std::exit(status);
 }
@@ -131,6 +136,7 @@ int main(int argc, char** argv)
         std::filesystem::path helper = PKGBUILD_PKGFILE_HELPER;
         std::filesystem::path scanner = PKGBUILD_STAGE_SCANNER;
         std::filesystem::path fakeroot = PKGBUILD_FAKEROOT;
+        std::filesystem::path strip = PKGBUILD_STRIP;
         std::optional<std::string> build_user;
         bool download = false;
         bool keep_work = false;
@@ -157,6 +163,8 @@ int main(int argc, char** argv)
                 fakeroot = require_argument(i, argc, argv);
             } else if (option == "--build-user") {
                 build_user = require_argument(i, argc, argv);
+            } else if (option == "--strip") {
+                strip = require_argument(i, argc, argv);
             } else if (option == "-h" || option == "--help") {
                 usage(argv[0], 0);
             } else if (!option.empty() && option[0] == '-') {
@@ -181,7 +189,7 @@ int main(int argc, char** argv)
         pkgbuild::LibarchiveBackend archives;
         pkgbuild::FakerootPkgfileRecipeRunner recipes(
             fakeroot, helper, scanner, processes);
-        pkgbuild::PackageTreeTransformer transformer;
+        pkgbuild::PackageTreeTransformer transformer(strip, processes);
         pkgbuild::Services services{
             definitions,
             downloader,

@@ -1,5 +1,6 @@
 #include <pkgbuild/backends/normalize.hpp>
 #include <pkgbuild/stage.hpp>
+#include <pkgbuild/backends/posix.hpp>
 
 #include <cerrno>
 #include <filesystem>
@@ -85,7 +86,8 @@ int main()
                 "cannot create man page symlink");
 
         auto package = pkgbuild::scan_staged_package(root);
-        pkgbuild::PackageTreeTransformer transformer;
+        pkgbuild::PosixProcessExecutor processes;
+        pkgbuild::PackageTreeTransformer transformer("/usr/bin/strip", processes);
         pkgbuild::NullEventSink events;
         pkgbuild::PackageDefinition definition;
         pkgbuild::TransformationPolicy policy;

@@ -132,8 +132,14 @@ int main(int argc, char** argv)
             "# generated manifest\n"
             "D41D8CD98F00B204E9800998ECF8427E  renamed.patch\n"
             "900150983cd24fb0d6963f7d28e17f72  foo.tar.gz\n");
+        std::ofstream(valid / ".nostrip")
+            << "usr/bin/private\n"
+            << "usr/lib/.*\n";
         const auto definition = loader.load(request_for(valid), events);
         require(definition.sources.size() == 2, "source count changed");
+        require(definition.strip_exclusions ==
+                    std::vector<std::string>({"usr/bin/private", "usr/lib/.*"}),
+                "strip exclusions were not normalized");
         require(definition.sources[0].digests[0].hexadecimal ==
                     "900150983cd24fb0d6963f7d28e17f72",
                 "first checksum was not attached by local filename");
@@ -185,6 +191,13 @@ int main(int argc, char** argv)
             root, "stale", "",
             "900150983cd24fb0d6963f7d28e17f72  old.tar.gz\n");
         require_invalid([&] { (void)loader.load(request_for(stale), events); });
+
+        const auto invalid_nostrip =
+            make_recipe(root, "invalid-nostrip", "", std::nullopt);
+        std::ofstream(invalid_nostrip / ".nostrip") << "[unterminated\n";
+        require_invalid([&] {
+            (void)loader.load(request_for(invalid_nostrip), events);
+        });
 
         std::filesystem::remove_all(root);
         std::cout << "pkgfile checksums: PASS\n";
