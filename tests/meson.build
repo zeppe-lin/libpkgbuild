@@ -15,3 +15,30 @@ workspace_test = executable(
 )
 
 test('private workspace', workspace_test)
+
+archive_integrity_test = executable(
+  'archive-integrity-test',
+  'archive-integrity-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('staged archive integrity', archive_integrity_test)
+
+fakeroot_program = find_program('fakeroot', required: true)
+fakeroot_metadata_test = executable(
+  'fakeroot-metadata-test',
+  'fakeroot-metadata-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test(
+  'fakeroot staged metadata',
+  fakeroot_metadata_test,
+  args: [
+    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    stage_scanner,
+    fakeroot_program.full_path(),
+  ],
+)
