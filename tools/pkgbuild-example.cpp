@@ -47,7 +47,7 @@ public:
            << "  -c, --config FILE        source legacy pkgmk configuration\n"
            << "      --source-dir DIR     source cache directory\n"
            << "      --package-dir DIR    package output directory\n"
-           << "      --work-dir DIR       temporary work directory\n"
+           << "      --work-dir DIR       private workspace base\n"
            << "      --helper FILE        pkgfile/0 worker path\n"
            << "      --build-user USER    execute Pkgfile as USER\n"
            << "  -h, --help               show this help\n";

@@ -138,6 +138,7 @@ struct BuildReceipt {
     std::filesystem::path package;
     std::vector<DownloadReceipt> downloads;
     ArchiveReceipt archive;
+    std::optional<std::filesystem::path> work_directory;
 };
 
 std::string to_string(ArchiveFormat format);
