@@ -6,10 +6,13 @@
 #include <libpkgimage/payload_sink.h>
 
 #include <openssl/evp.h>
+#include <zlib.h>
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -39,44 +42,164 @@ std::string hex_digest(const unsigned char* data, unsigned int size)
     return output.str();
 }
 
+struct PayloadDigest {
+    std::uint64_t size{0};
+    std::string sha256;
+};
+
+bool ends_with(const std::string& value, const std::string& suffix)
+{
+    return value.size() >= suffix.size() &&
+           value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+bool is_compressed_manpage(const std::string& value)
+{
+    const std::filesystem::path path(value);
+    std::vector<std::string> components;
+    for (const auto& component : path)
+        components.push_back(component.string());
+
+    if (components.size() < 3 || !ends_with(components.back(), ".gz"))
+        return false;
+
+    for (std::size_t index = 0; index + 2 < components.size(); ++index) {
+        if (components[index] == "man" &&
+            components[index + 1].rfind("man", 0) == 0 &&
+            components[index + 1].size() > 3)
+            return true;
+    }
+    return false;
+}
+
 class PayloadHasher final : public pkgimage::payload_sink {
 public:
+    ~PayloadHasher() override
+    {
+        reset_inflater();
+    }
+
     void begin(const pkgimage::package_entry& entry) override
     {
         current_path_ = entry.path.string();
+        normalize_gzip_ = is_compressed_manpage(current_path_);
+        semantic_size_ = 0;
+        gzip_finished_ = false;
+
         context_.reset(EVP_MD_CTX_new());
-        if (!context_ || EVP_DigestInit_ex(context_.get(), EVP_sha256(), nullptr) != 1)
+        if (!context_ ||
+            EVP_DigestInit_ex(context_.get(), EVP_sha256(), nullptr) != 1)
             throw std::runtime_error("cannot initialize SHA-256 payload digest");
+
+        if (normalize_gzip_) {
+            stream_ = {};
+            if (inflateInit2(&stream_, 15 + 16) != Z_OK)
+                throw std::runtime_error("cannot initialize gzip payload decoder");
+            inflater_initialized_ = true;
+        }
     }
 
     void write(const pkgimage::package_entry&,
                const std::byte* data,
                std::size_t size) override
     {
-        if (EVP_DigestUpdate(context_.get(), data, size) != 1)
-            throw std::runtime_error("cannot update SHA-256 payload digest");
+        if (!normalize_gzip_) {
+            update_digest(data, size);
+            semantic_size_ += size;
+            return;
+        }
+
+        if (gzip_finished_ && size != 0)
+            throw std::runtime_error("gzip man page contains trailing data: '" +
+                                     current_path_ + "'");
+
+        std::size_t offset = 0;
+        while (offset != size) {
+            const auto chunk = std::min<std::size_t>(
+                size - offset, std::numeric_limits<uInt>::max());
+            stream_.next_in = reinterpret_cast<Bytef*>(
+                const_cast<std::byte*>(data + offset));
+            stream_.avail_in = static_cast<uInt>(chunk);
+
+            while (stream_.avail_in != 0) {
+                std::array<unsigned char, 64 * 1024> output {};
+                stream_.next_out = output.data();
+                stream_.avail_out = static_cast<uInt>(output.size());
+                const auto before = stream_.avail_in;
+                const int result = inflate(&stream_, Z_NO_FLUSH);
+                const std::size_t produced = output.size() - stream_.avail_out;
+                update_digest(reinterpret_cast<const std::byte*>(output.data()),
+                              produced);
+                semantic_size_ += produced;
+
+                if (result == Z_STREAM_END) {
+                    gzip_finished_ = true;
+                    if (stream_.avail_in != 0 || offset + chunk != size)
+                        throw std::runtime_error(
+                            "gzip man page contains trailing data: '" +
+                            current_path_ + "'");
+                    break;
+                }
+                if (result != Z_OK ||
+                    (produced == 0 && stream_.avail_in == before))
+                    throw std::runtime_error("invalid gzip man page payload: '" +
+                                             current_path_ + "'");
+            }
+            offset += chunk;
+        }
     }
 
     void end(const pkgimage::package_entry&) override
     {
+        if (normalize_gzip_) {
+            if (!gzip_finished_)
+                throw std::runtime_error("truncated gzip man page payload: '" +
+                                         current_path_ + "'");
+            reset_inflater();
+        }
+
         std::array<unsigned char, EVP_MAX_MD_SIZE> digest {};
         unsigned int size = 0;
         if (EVP_DigestFinal_ex(context_.get(), digest.data(), &size) != 1)
             throw std::runtime_error("cannot finalize SHA-256 payload digest");
-        hashes_.emplace(current_path_, hex_digest(digest.data(), size));
+        payloads_.emplace(current_path_,
+                          PayloadDigest{semantic_size_,
+                                        hex_digest(digest.data(), size)});
         context_.reset();
         current_path_.clear();
+        normalize_gzip_ = false;
+        semantic_size_ = 0;
+        gzip_finished_ = false;
     }
 
-    const std::map<std::string, std::string>& hashes() const noexcept
+    const std::map<std::string, PayloadDigest>& payloads() const noexcept
     {
-        return hashes_;
+        return payloads_;
     }
 
 private:
+    void update_digest(const std::byte* data, std::size_t size)
+    {
+        if (size != 0 && EVP_DigestUpdate(context_.get(), data, size) != 1)
+            throw std::runtime_error("cannot update SHA-256 payload digest");
+    }
+
+    void reset_inflater() noexcept
+    {
+        if (inflater_initialized_)
+            (void)inflateEnd(&stream_);
+        stream_ = {};
+        inflater_initialized_ = false;
+    }
+
     EvpContext context_;
+    z_stream stream_ {};
+    bool inflater_initialized_{false};
+    bool normalize_gzip_{false};
+    bool gzip_finished_{false};
+    std::uint64_t semantic_size_{0};
     std::string current_path_;
-    std::map<std::string, std::string> hashes_;
+    std::map<std::string, PayloadDigest> payloads_;
 };
 
 std::string entry_type_name(pkgimage::entry_type type)
@@ -193,11 +316,12 @@ SemanticArchive inspect_archive(const std::filesystem::path& path)
             normalized.hardlink_group = join_paths(group->second);
         normalized.device = device_text(metadata->device);
         if (metadata->type == pkgimage::entry_type::regular) {
-            const auto hash = hasher.hashes().find(payload_path);
-            if (hash == hasher.hashes().end())
-                throw std::runtime_error("regular payload hash is absent for '" +
+            const auto payload = hasher.payloads().find(payload_path);
+            if (payload == hasher.payloads().end())
+                throw std::runtime_error("regular payload digest is absent for '" +
                                          payload_path + "'");
-            normalized.payload_sha256 = hash->second;
+            normalized.size = payload->second.size;
+            normalized.payload_sha256 = payload->second.sha256;
         }
         result.emplace(entry.path.string(), std::move(normalized));
     }

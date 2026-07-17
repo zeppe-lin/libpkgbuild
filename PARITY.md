@@ -16,14 +16,19 @@ libpkgimage and compares their normalized installation semantics:
 * entry type;
 * permission and special mode bits;
 * numeric uid and gid;
-* regular-file size;
+* regular-file semantic size;
 * symbolic-link targets;
 * hard-link group membership;
 * device major and minor numbers; and
-* SHA-256 hashes of regular-file payloads.
+* SHA-256 hashes of regular-file semantic payloads.
 
-Archive order, compression representation, entry identifiers, and
-modification timestamps are not compared.  Hard links are compared as
+For gzip-compressed manual pages beneath `*/man/man*/*.gz`, both inputs
+must be valid single-member gzip streams.  Their decompressed sizes and
+payload hashes are compared, so gzip filename and timestamp headers do
+not create false differences.  Other gzip files remain byte-sensitive.
+
+Archive order, package compression representation, entry identifiers,
+and modification timestamps are not compared.  Hard links are compared as
 sorted path groups, so choosing a different regular member as the tar
 hard-link target does not create a false difference.
 

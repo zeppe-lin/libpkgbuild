@@ -143,7 +143,7 @@ if libpkgimage_dep.found()
       '../tools/parity/archive_compare.cpp',
     ],
     include_directories: include_directories('../tools'),
-    dependencies: [pkgbuild_dep, libpkgimage_dep, libcrypto_dep],
+    dependencies: [pkgbuild_dep, libpkgimage_dep, libcrypto_dep, zlib_dep],
     install: false,
   )
 

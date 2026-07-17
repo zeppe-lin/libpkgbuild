@@ -105,7 +105,10 @@ The optional parity tools use libpkgimage 0.2.1 or later without adding
 libpkgimage to the libpkgbuild runtime dependency closure.
 `pkgbuild-archive-compare` compares normalized archive semantics and
 SHA-256 payload hashes while ignoring archive order, timestamps, and the
-choice of hard-link target member.  `pkgbuild-parity` builds every
+choice of hard-link target member.  Gzip-compressed manual pages are
+compared through their decompressed content, so legacy gzip filename and
+timestamp headers do not obscure equivalent installation payloads.
+`pkgbuild-parity` builds every
 Pkgfile case in an isolated corpus with both production pkgmk and the
 reference libpkgbuild frontend.  Corpus case directory basenames are
 preserved and must match the Pkgfile package name.  The runner fails on
