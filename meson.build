@@ -109,9 +109,6 @@ executable(
   install: false,
 )
 
-subdir('tests')
-
-
 if libpkgimage_dep.found()
   parity_compare_sources = files(
     'tools/parity/archive_compare.cpp',
@@ -126,7 +123,7 @@ if libpkgimage_dep.found()
   )
 
 
-  executable(
+  pkgbuild_parity = executable(
     'pkgbuild-parity',
     ['tools/pkgbuild-parity.cpp', parity_compare_sources],
     include_directories: include_directories('tools'),
@@ -135,3 +132,5 @@ if libpkgimage_dep.found()
     install: false,
   )
 endif
+
+subdir('tests')

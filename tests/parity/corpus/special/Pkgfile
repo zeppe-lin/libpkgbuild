@@ -1,0 +1,13 @@
+# Description: parity fixture for special staged objects
+name=parity-special
+version=1.0
+release=1
+source=marker.txt
+
+build() {
+    mkdir -p "$PKG/var/lib/parity-special"
+    install -m 0600 "$SRC/marker.txt" "$PKG/var/lib/parity-special/marker"
+    mkfifo "$PKG/var/lib/parity-special/pipe"
+    chmod 0620 "$PKG/var/lib/parity-special/pipe"
+    mknod "$PKG/var/lib/parity-special/null" c 1 3
+}

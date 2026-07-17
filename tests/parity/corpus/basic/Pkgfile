@@ -1,0 +1,14 @@
+# Description: parity fixture for regular metadata and links
+name=parity-basic
+version=1.0
+release=1
+source=message.txt
+
+build() {
+    mkdir -p "$PKG/usr/share/parity-basic" "$PKG/var/empty/parity-basic"
+    install -m 0640 "$SRC/message.txt" "$PKG/usr/share/parity-basic/message.txt"
+    ln "$PKG/usr/share/parity-basic/message.txt" \
+       "$PKG/usr/share/parity-basic/message.hard"
+    ln -s message.txt "$PKG/usr/share/parity-basic/message.link"
+    chown -h 123:456 "$PKG/usr/share/parity-basic"/*
+}

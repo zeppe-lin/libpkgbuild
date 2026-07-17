@@ -1,0 +1,12 @@
+# Description: parity fixture for ordinary hard-link groups
+name=parity-hardlinks
+version=1.0
+release=1
+source=payload.txt
+
+build() {
+    mkdir -p "$PKG/usr/lib/parity"
+    install -m 0755 "$SRC/payload.txt" "$PKG/usr/lib/parity/one"
+    ln "$PKG/usr/lib/parity/one" "$PKG/usr/lib/parity/two"
+    ln "$PKG/usr/lib/parity/one" "$PKG/usr/lib/parity/three"
+}

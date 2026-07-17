@@ -133,3 +133,26 @@ footprint_pipeline_test = executable(
 )
 
 test('footprint pipeline', footprint_pipeline_test)
+
+
+if libpkgimage_dep.found()
+  parity_compare_test = executable(
+    'parity-compare-test',
+    [
+      'parity-compare-test.cpp',
+      '../tools/parity/archive_compare.cpp',
+    ],
+    include_directories: include_directories('../tools'),
+    dependencies: [pkgbuild_dep, libpkgimage_dep, libcrypto_dep],
+    install: false,
+  )
+
+  test('semantic archive comparison', parity_compare_test)
+
+  parity_runner_test = find_program('parity/run-parity-test.sh')
+  test(
+    'pkgmk parity corpus runner',
+    parity_runner_test,
+    args: [pkgbuild_parity, fakeroot_program.full_path()],
+  )
+endif
