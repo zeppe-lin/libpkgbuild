@@ -2,6 +2,7 @@
 #include <pkgbuild/backends/fakeroot.hpp>
 #include <pkgbuild/backends/libarchive.hpp>
 #include <pkgbuild/backends/openssl.hpp>
+#include <pkgbuild/backends/normalize.hpp>
 #include <pkgbuild/backends/pkgfile.hpp>
 #include <pkgbuild/backends/posix.hpp>
 #include <pkgbuild/engine.hpp>
@@ -180,7 +181,7 @@ int main(int argc, char** argv)
         pkgbuild::LibarchiveBackend archives;
         pkgbuild::FakerootPkgfileRecipeRunner recipes(
             fakeroot, helper, scanner, processes);
-        pkgbuild::NullPackageTransformer transformer;
+        pkgbuild::PackageTreeTransformer transformer;
         pkgbuild::Services services{
             definitions,
             downloader,

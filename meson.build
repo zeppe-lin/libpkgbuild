@@ -13,6 +13,7 @@ project(
 libarchive_dep = dependency('libarchive', required: true)
 libcurl_dep = dependency('libcurl', required: true)
 libcrypto_dep = dependency('libcrypto', required: true)
+zlib_dep = dependency('zlib', required: true)
 
 pkgfile_helper = join_paths(
   get_option('prefix'),
@@ -35,6 +36,7 @@ sources = files(
   'libpkgbuild/engine.cpp',
   'libpkgbuild/backends/pkgfile.cpp',
   'libpkgbuild/backends/openssl.cpp',
+  'libpkgbuild/backends/normalize.cpp',
   'libpkgbuild/backends/curl.cpp',
   'libpkgbuild/backends/libarchive.cpp',
 )
@@ -43,7 +45,7 @@ libpkgbuild = library(
   'pkgbuild',
   sources,
   include_directories: inc,
-  dependencies: [libarchive_dep, libcurl_dep, libcrypto_dep],
+  dependencies: [libarchive_dep, libcurl_dep, libcrypto_dep, zlib_dep],
   version: meson.project_version(),
   soversion: '0',
   install: true,
@@ -52,7 +54,7 @@ libpkgbuild = library(
 pkgbuild_dep = declare_dependency(
   link_with: libpkgbuild,
   include_directories: inc,
-  dependencies: [libarchive_dep, libcurl_dep, libcrypto_dep],
+  dependencies: [libarchive_dep, libcurl_dep, libcrypto_dep, zlib_dep],
 )
 
 meson.override_dependency('libpkgbuild', pkgbuild_dep)
@@ -75,7 +77,7 @@ pkgconfig.generate(
   name: 'libpkgbuild',
   description: 'Zeppe-Lin package build engine',
   version: meson.project_version(),
-  requires_private: ['libarchive', 'libcurl', 'libcrypto'],
+  requires_private: ['libarchive', 'libcurl', 'libcrypto', 'zlib'],
 )
 
 

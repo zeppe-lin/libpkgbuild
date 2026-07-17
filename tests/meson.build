@@ -75,3 +75,12 @@ source_integrity_test = executable(
 )
 
 test('source integrity pipeline', source_integrity_test)
+
+manpage_transform_test = executable(
+  'manpage-transform-test',
+  'manpage-transform-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('man page transformation', manpage_transform_test)

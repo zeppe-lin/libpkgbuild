@@ -334,7 +334,6 @@ BuildReceipt Engine::build(const BuildRequest& request,
     auto staged = services_.recipes.run(
         RecipeRequest{definition, paths, source_root, package_root,
                       request.definition.execution}, events);
-    seal_workspace(paths.work_dir, request.definition.execution.identity);
 
     if (staged.entries.empty())
         throw Error(ErrorCode::recipe_failed,
@@ -347,6 +346,7 @@ BuildReceipt Engine::build(const BuildRequest& request,
     if (!transformation.changes.empty())
         receipt.transformations.push_back(std::move(transformation));
     validate_staged_package(staged);
+    seal_workspace(paths.work_dir, request.definition.execution.identity);
 
     const auto target =
         std::filesystem::absolute(paths.package_dir /
