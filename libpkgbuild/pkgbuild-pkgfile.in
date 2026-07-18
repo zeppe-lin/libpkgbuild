@@ -73,12 +73,22 @@ inspect)
 		"$PKGMK_ARCHIVE_FORMAT" "$PKGMK_COMPRESSION_MODE" 'build'
 	;;
 run)
+	# Configuration supplies build policy, not engine-owned paths.  Reassert
+	# the inspected archive identity and the private workspace selected by
+	# the engine before executing untrusted recipe code.
+	PKGMK_ROOT=$recipe_dir
+	PKGMK_SOURCE_DIR=$source_dir
+	PKGMK_PACKAGE_DIR=$package_dir
+	PKGMK_WORK_DIR=$work_dir
+	PKGMK_ARCHIVE_FORMAT=$archive_format
+	PKGMK_COMPRESSION_MODE=$compression_mode
 	SRC=$9
 	PKG=${10}
 	expected_name=${11}
 	expected_version=${12}
 	expected_release=${13}
-	export SRC PKG
+	export PKGMK_ROOT PKGMK_SOURCE_DIR PKGMK_PACKAGE_DIR PKGMK_WORK_DIR
+	export PKGMK_ARCHIVE_FORMAT PKGMK_COMPRESSION_MODE SRC PKG
 
 	[ "$name" = "$expected_name" ] && \
 	[ "$version" = "$expected_version" ] && \
