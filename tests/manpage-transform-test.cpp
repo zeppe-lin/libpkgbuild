@@ -84,6 +84,8 @@ int main()
                 "cannot create man page hardlink");
         require(symlink("tool.1", (man / "tool-link.1").c_str()) == 0,
                 "cannot create man page symlink");
+        require(symlink("tool.1.gz", (man / "tool-link.1.gz").c_str()) == 0,
+                "cannot create precompressed man page symlink");
         const auto doc = root / "usr/share/doc";
         std::filesystem::create_directories(doc);
         std::ofstream(man / "mixed.1") << "mixed payload\n";
@@ -118,8 +120,10 @@ int main()
         require(primary.st_dev == alias.st_dev && primary.st_ino == alias.st_ino,
                 "compressed hardlink group was split");
 
+        require(!std::filesystem::exists(man / "tool-link.1"),
+                "redundant uncompressed man page symlink survived");
         require(std::filesystem::is_symlink(man / "tool-link.1.gz"),
-                "man page symlink was not renamed");
+                "man page symlink was not coalesced");
         require(std::filesystem::read_symlink(man / "tool-link.1.gz") ==
                     "tool.1.gz",
                 "man page symlink target was not rewritten");

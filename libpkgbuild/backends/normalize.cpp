@@ -955,7 +955,13 @@ void compress_manpages(StagedPackage& package,
         });
     }
 
-    for (auto& entry : package.entries) {
+    std::map<std::filesystem::path, std::size_t> entry_indices;
+    for (std::size_t index = 0; index != package.entries.size(); ++index)
+        entry_indices.emplace(package.entries[index].path, index);
+
+    std::set<std::size_t> removed_entries;
+    for (std::size_t index = 0; index != package.entries.size(); ++index) {
+        auto& entry = package.entries[index];
         if (entry.type != StagedEntryType::symbolic_link ||
             !is_manpage_path(entry.path))
             continue;
@@ -971,23 +977,51 @@ void compress_manpages(StagedPackage& package,
         const auto new_path = compressed_path(old_path);
         const auto old_full = package.root / old_path;
         const auto new_full = package.root / new_path;
-        if (path_exists(new_full))
-            throw Error(ErrorCode::transformation_failed,
-                        "compressed man page symlink already exists: " +
-                            new_path.string());
+        const std::string new_target = *entry.symlink_target + ".gz";
 
-        std::string new_target = *entry.symlink_target + ".gz";
-        if (symlink(new_target.c_str(), new_full.c_str()) != 0)
-            filesystem_error("cannot create compressed man page symlink", new_full);
-        if (unlink(old_full.c_str()) != 0) {
-            const int saved = errno;
-            (void)unlink(new_full.c_str());
-            errno = saved;
-            filesystem_error("cannot remove old man page symlink", old_full);
+        const auto existing = entry_indices.find(new_path);
+        if (existing != entry_indices.end() && existing->second != index) {
+            const auto& destination = package.entries[existing->second];
+            const auto destination_target = resolved_symlink_target(destination);
+            if (destination.type != StagedEntryType::symbolic_link ||
+                !destination_target ||
+                *destination_target != replacement->second)
+                throw Error(ErrorCode::transformation_failed,
+                            "incompatible compressed man page entry: " +
+                                new_path.string());
+
+            std::error_code target_error;
+            const auto observed_target =
+                std::filesystem::read_symlink(new_full, target_error);
+            if (target_error || !destination.symlink_target ||
+                observed_target.string() != *destination.symlink_target)
+                throw Error(ErrorCode::transformation_failed,
+                            "compressed man page symlink changed before "
+                            "normalization: " + new_path.string());
+
+            if (unlink(old_full.c_str()) != 0)
+                filesystem_error("cannot remove redundant man page symlink",
+                                 old_full);
+            removed_entries.insert(index);
+        } else {
+            if (path_exists(new_full))
+                throw Error(ErrorCode::transformation_failed,
+                            "untracked compressed man page symlink exists: " +
+                                new_path.string());
+            if (symlink(new_target.c_str(), new_full.c_str()) != 0)
+                filesystem_error("cannot create compressed man page symlink",
+                                 new_full);
+            if (unlink(old_full.c_str()) != 0) {
+                const int saved = errno;
+                (void)unlink(new_full.c_str());
+                errno = saved;
+                filesystem_error("cannot remove old man page symlink", old_full);
+            }
+
+            entry.path = new_path;
+            entry.symlink_target = new_target;
         }
 
-        entry.path = new_path;
-        entry.symlink_target = new_target;
         receipt.changes.push_back(TransformationChange{
             TransformationKind::rewrite_manpage_symlink,
             {old_path},
@@ -995,6 +1029,16 @@ void compress_manpages(StagedPackage& package,
             0,
             0,
         });
+    }
+
+    if (!removed_entries.empty()) {
+        std::vector<StagedEntry> retained;
+        retained.reserve(package.entries.size() - removed_entries.size());
+        for (std::size_t index = 0; index != package.entries.size(); ++index) {
+            if (removed_entries.find(index) == removed_entries.end())
+                retained.push_back(std::move(package.entries[index]));
+        }
+        package.entries = std::move(retained);
     }
 
     sort_entries(package);
