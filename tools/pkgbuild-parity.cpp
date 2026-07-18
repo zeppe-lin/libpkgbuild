@@ -345,6 +345,7 @@ enum class CaseStatus {
     pass,
     legacy_build_failed,
     candidate_build_failed,
+    nondeterministic_output,
     semantic_mismatch,
 };
 
@@ -354,6 +355,8 @@ const char* status_name(CaseStatus status) noexcept
     case CaseStatus::pass: return "PASS";
     case CaseStatus::legacy_build_failed: return "LEGACY_BUILD_FAILED";
     case CaseStatus::candidate_build_failed: return "CANDIDATE_BUILD_FAILED";
+    case CaseStatus::nondeterministic_output:
+        return "NONDETERMINISTIC_OUTPUT";
     case CaseStatus::semantic_mismatch: return "SEMANTIC_MISMATCH";
     }
     return "UNKNOWN";
@@ -633,6 +636,196 @@ std::vector<std::filesystem::path> corpus_cases(
     return result;
 }
 
+struct BuildAttempt {
+    std::optional<std::filesystem::path> package;
+    std::optional<std::filesystem::path> workspace;
+    std::vector<std::string> errors;
+
+    bool ok() const noexcept
+    {
+        return package.has_value() && errors.empty();
+    }
+};
+
+std::vector<std::string> compare_packages(
+    const std::filesystem::path& reference,
+    const std::filesystem::path& candidate)
+{
+    std::vector<std::string> details;
+    if (reference.filename() != candidate.filename()) {
+        details.push_back("package-filename: " +
+                          reference.filename().string() + " -> " +
+                          candidate.filename().string());
+    }
+
+    try {
+        const auto comparison =
+            pkgbuild::parity::compare_archives(reference, candidate);
+        for (const auto& difference : comparison.differences)
+            details.push_back(pkgbuild::parity::format_difference(difference));
+    } catch (const std::exception& error) {
+        details.push_back(std::string("comparison-error: ") + error.what());
+    }
+    return details;
+}
+
+std::vector<std::string> prefix_details(
+    const std::string& prefix,
+    const std::vector<std::string>& details)
+{
+    std::vector<std::string> result;
+    result.reserve(details.size());
+    for (const auto& detail : details)
+        result.push_back(prefix + detail);
+    return result;
+}
+
+void write_comparison_evidence(
+    const std::filesystem::path& path,
+    const std::vector<std::string>& details)
+{
+    std::string value;
+    if (details.empty()) {
+        value = "equivalent\n";
+    } else {
+        for (const auto& detail : details)
+            value += detail + "\n";
+    }
+    write_text(path, value);
+}
+
+BuildAttempt run_candidate_attempt(
+    const Options& options,
+    const pkgbuild::ProcessExecutor& executor,
+    const std::optional<pkgbuild::BuildIdentity>& identity,
+    const std::map<std::string, std::string>& environment,
+    const std::filesystem::path& recipe,
+    const std::filesystem::path& sources,
+    const std::filesystem::path& packages,
+    const std::filesystem::path& work_base,
+    const std::filesystem::path& temporary,
+    const std::filesystem::path& config,
+    const std::filesystem::path& evidence,
+    std::optional<std::filesystem::path> exact_workspace = std::nullopt)
+{
+    std::filesystem::create_directories(evidence / "packages");
+    std::vector<std::string> arguments = {
+        "--source-dir", sources.string(),
+        "--package-dir", packages.string(),
+        "--work-dir", work_base.string(),
+        "--tmp-dir", temporary.string(),
+        "--config", config.string(),
+        "--helper", options.helper.string(),
+        "--scanner", options.scanner.string(),
+        "--fakeroot", options.fakeroot.string(),
+        "--strip", options.strip.string(),
+        "--keep-work",
+    };
+    if (exact_workspace) {
+        arguments.push_back("--workspace-dir");
+        arguments.push_back(exact_workspace->string());
+    }
+    if (options.download)
+        arguments.push_back("--download");
+    arguments.push_back(recipe.string());
+
+    const auto run = run_builder(
+        executor,
+        pkgbuild::ProcessRequest{
+            options.pkgbuild,
+            std::move(arguments),
+            recipe,
+            environment,
+            identity,
+            0022,
+            true,
+            true,
+        },
+        evidence / "build.log");
+    if (run.error)
+        return BuildAttempt{std::nullopt, std::nullopt,
+                            {"executor-error: " + *run.error}};
+    if (!run.result->ok())
+        return BuildAttempt{std::nullopt, std::nullopt,
+                            {process_status(*run.result)}};
+
+    try {
+        const auto package = move_package(packages, evidence / "packages");
+        validate_archive(package);
+        const auto workspace = find_private_workspace(work_base);
+        write_text(evidence / "workspace.txt", workspace.string() + "\n");
+        return BuildAttempt{package, workspace, {}};
+    } catch (const std::exception& error) {
+        return BuildAttempt{std::nullopt, std::nullopt,
+                            {std::string("artifact-error: ") + error.what()}};
+    }
+}
+
+BuildAttempt run_legacy_attempt(
+    const Options& options,
+    const pkgbuild::ProcessExecutor& executor,
+    const std::optional<pkgbuild::BuildIdentity>& identity,
+    const std::map<std::string, std::string>& environment,
+    const std::filesystem::path& recipe,
+    const std::filesystem::path& sources,
+    const std::filesystem::path& packages,
+    const std::filesystem::path& temporary,
+    const std::filesystem::path& config,
+    const std::filesystem::path& private_workspace,
+    const std::filesystem::path& evidence)
+{
+    try {
+        reset_private_workspace(private_workspace);
+        reset_temporary_directory(temporary, identity);
+        write_build_config(config, options.config_file, sources, packages,
+                           private_workspace);
+    } catch (const std::exception& error) {
+        return BuildAttempt{std::nullopt, std::nullopt,
+                            {std::string("workspace-error: ") + error.what()}};
+    }
+
+    std::filesystem::create_directories(evidence / "packages");
+    auto legacy_environment = environment;
+    legacy_environment["TMPDIR"] = temporary.string();
+    std::vector<std::string> arguments = {
+        "--", options.pkgmk.string(), "-cf", config.string(),
+        "-f", "-if", "-kw",
+    };
+    if (options.download)
+        arguments.push_back("-d");
+
+    const auto run = run_builder(
+        executor,
+        pkgbuild::ProcessRequest{
+            options.fakeroot,
+            std::move(arguments),
+            recipe,
+            std::move(legacy_environment),
+            identity,
+            0022,
+            true,
+            true,
+        },
+        evidence / "build.log");
+    if (run.error)
+        return BuildAttempt{std::nullopt, std::nullopt,
+                            {"executor-error: " + *run.error}};
+    if (!run.result->ok())
+        return BuildAttempt{std::nullopt, std::nullopt,
+                            {process_status(*run.result)}};
+
+    try {
+        const auto package = move_package(packages, evidence / "packages");
+        validate_archive(package);
+        write_text(evidence / "workspace.txt",
+                   private_workspace.string() + "\n");
+        return BuildAttempt{package, private_workspace, {}};
+    } catch (const std::exception& error) {
+        return BuildAttempt{std::nullopt, std::nullopt,
+                            {std::string("artifact-error: ") + error.what()}};
+    }
+}
+
 CaseResult run_case(const Options& options,
                     const pkgbuild::ProcessExecutor& executor,
                     const std::optional<pkgbuild::BuildIdentity>& identity,
@@ -645,8 +838,6 @@ CaseResult run_case(const Options& options,
     const auto recipe = root / "recipe" / name;
     const auto legacy = root / "pkgmk";
     const auto candidate = root / "libpkgbuild";
-    const auto legacy_packages = legacy / "packages";
-    const auto candidate_packages = candidate / "packages";
     const auto packages = root / "packages";
     const auto sources = root / "sources";
     const auto work_base = root / "work";
@@ -654,8 +845,6 @@ CaseResult run_case(const Options& options,
     const auto config = root / "pkgmk.conf";
 
     copy_recipe(corpus_case, recipe);
-    std::filesystem::create_directories(legacy_packages);
-    std::filesystem::create_directories(candidate_packages);
     std::filesystem::create_directories(packages);
     std::filesystem::create_directories(sources);
     std::filesystem::create_directories(work_base);
@@ -663,127 +852,64 @@ CaseResult run_case(const Options& options,
     write_build_config(config, options.config_file, sources, packages, work_base);
     assign_tree(root, identity);
 
-    std::vector<std::string> candidate_arguments = {
-        "--source-dir", sources.string(),
-        "--package-dir", packages.string(),
-        "--work-dir", work_base.string(),
-        "--tmp-dir", temporary.string(),
-        "--config", config.string(),
-        "--helper", options.helper.string(),
-        "--scanner", options.scanner.string(),
-        "--fakeroot", options.fakeroot.string(),
-        "--strip", options.strip.string(),
-        "--keep-work",
-    };
-    if (options.download)
-        candidate_arguments.push_back("--download");
-    candidate_arguments.push_back(recipe.string());
-
-    const auto candidate_run = run_builder(
-        executor,
-        pkgbuild::ProcessRequest{
-            options.pkgbuild,
-            std::move(candidate_arguments),
-            recipe,
-            environment,
-            identity,
-            0022,
-            true,
-            true,
-        },
-        candidate / "build.log");
-    if (candidate_run.error) {
+    const auto candidate_one = run_candidate_attempt(
+        options, executor, identity, environment, recipe, sources, packages,
+        work_base, temporary, config, candidate / "run-1");
+    if (!candidate_one.ok()) {
         return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
-                           root, {"executor-error: " + *candidate_run.error});
-    }
-    if (!candidate_run.result->ok()) {
-        return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
-                           root, {process_status(*candidate_run.result)});
+                           root, candidate_one.errors);
     }
 
-    std::filesystem::path result;
-    std::filesystem::path private_workspace;
-    try {
-        result = move_package(packages, candidate_packages);
-        validate_archive(result);
-        private_workspace = find_private_workspace(work_base);
-        write_text(candidate / "workspace.txt",
-                   private_workspace.string() + "\n");
-    } catch (const std::exception& error) {
-        return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
-                           root, {std::string("artifact-error: ") + error.what()});
+    const auto legacy_one = run_legacy_attempt(
+        options, executor, identity, environment, recipe, sources, packages,
+        temporary, config, *candidate_one.workspace, legacy / "run-1");
+    if (!legacy_one.ok()) {
+        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
+                           root, legacy_one.errors);
     }
+
+    auto cross_details =
+        compare_packages(*legacy_one.package, *candidate_one.package);
+    if (!cross_details.empty())
+        write_comparison_evidence(root / "cross-comparison.txt", cross_details);
+    if (cross_details.empty())
+        return CaseResult{CaseStatus::pass, name, corpus_case, root, {}};
 
     try {
-        reset_private_workspace(private_workspace);
+        reset_private_workspace(*candidate_one.workspace);
         reset_temporary_directory(temporary, identity);
         write_build_config(config, options.config_file, sources, packages,
-                           private_workspace);
+                           work_base);
     } catch (const std::exception& error) {
-        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
-                           root, {std::string("workspace-error: ") + error.what()});
+        return failed_case(
+            CaseStatus::candidate_build_failed, name, corpus_case, root,
+            {std::string("repeat-workspace-error: ") + error.what()});
     }
 
-    auto legacy_environment = environment;
-    legacy_environment["TMPDIR"] = temporary.string();
-    std::vector<std::string> legacy_arguments = {
-        "--", options.pkgmk.string(), "-cf", config.string(),
-        "-f", "-if", "-kw",
-    };
-    if (options.download)
-        legacy_arguments.push_back("-d");
-
-    const auto legacy_run = run_builder(
-        executor,
-        pkgbuild::ProcessRequest{
-            options.fakeroot,
-            std::move(legacy_arguments),
-            recipe,
-            std::move(legacy_environment),
-            identity,
-            0022,
-            true,
-            true,
-        },
-        legacy / "build.log");
-    if (legacy_run.error) {
-        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
-                           root, {"executor-error: " + *legacy_run.error});
-    }
-    if (!legacy_run.result->ok()) {
-        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
-                           root, {process_status(*legacy_run.result)});
-    }
-
-    std::filesystem::path reference;
-    try {
-        reference = move_package(packages, legacy_packages);
-        validate_archive(reference);
-    } catch (const std::exception& error) {
-        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
-                           root, {std::string("artifact-error: ") + error.what()});
-    }
-
-    std::vector<std::string> details;
-    if (reference.filename() != result.filename()) {
-        details.push_back("package-filename: " +
-                          reference.filename().string() + " -> " +
-                          result.filename().string());
-    }
-
-    try {
-        const auto comparison =
-            pkgbuild::parity::compare_archives(reference, result);
-        for (const auto& difference : comparison.differences)
-            details.push_back(pkgbuild::parity::format_difference(difference));
-    } catch (const std::exception& error) {
-        details.push_back(std::string("comparison-error: ") + error.what());
-    }
-
-    if (!details.empty())
-        return failed_case(CaseStatus::semantic_mismatch, name, corpus_case,
+    const auto candidate_two = run_candidate_attempt(
+        options, executor, identity, environment, recipe, sources, packages,
+        work_base, temporary, config, candidate / "run-2",
+        candidate_one.workspace);
+    if (!candidate_two.ok()) {
+        auto details = prefix_details("repeat-run: ", candidate_two.errors);
+        return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
                            root, std::move(details));
-    return CaseResult{CaseStatus::pass, name, corpus_case, root, {}};
+    }
+
+    const auto candidate_repeat =
+        compare_packages(*candidate_one.package, *candidate_two.package);
+    write_comparison_evidence(candidate / "repeat-comparison.txt",
+                              candidate_repeat);
+    if (!candidate_repeat.empty()) {
+        std::vector<std::string> details{"engine: libpkgbuild"};
+        auto repeated = prefix_details("repeat-mismatch: ", candidate_repeat);
+        details.insert(details.end(), repeated.begin(), repeated.end());
+        return failed_case(CaseStatus::nondeterministic_output, name,
+                           corpus_case, root, std::move(details));
+    }
+
+    return failed_case(CaseStatus::semantic_mismatch, name, corpus_case,
+                       root, std::move(cross_details));
 }
 
 } // namespace
@@ -828,6 +954,8 @@ int main(int argc, char** argv)
                   << counts[CaseStatus::legacy_build_failed]
                   << " candidate-build-failed="
                   << counts[CaseStatus::candidate_build_failed]
+                  << " nondeterministic-output="
+                  << counts[CaseStatus::nondeterministic_output]
                   << " semantic-mismatch="
                   << counts[CaseStatus::semantic_mismatch] << '\n';
 
@@ -836,6 +964,7 @@ int main(int argc, char** argv)
         const std::size_t failures =
             counts[CaseStatus::legacy_build_failed] +
             counts[CaseStatus::candidate_build_failed] +
+            counts[CaseStatus::nondeterministic_output] +
             counts[CaseStatus::semantic_mismatch];
         if (failures != 0)
             std::cout << "FAILED_WORK "
