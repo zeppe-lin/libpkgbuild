@@ -367,6 +367,19 @@ int main()
         const auto thin_ar = write_single_file_archive(
             temporary.path(), "thin-ar.pkg.tar.gz", "usr/lib/libfixture.a",
             "!<thin>\n");
+        const auto linker_script = write_single_file_archive(
+            temporary.path(), "linker-script.pkg.tar.gz", "usr/lib/libm.a",
+            "/* GNU ld script */\nGROUP ( /lib/libm.so.6 )\n");
+        const auto linker_script_changed = write_single_file_archive(
+            temporary.path(), "linker-script-changed.pkg.tar.gz",
+            "usr/lib/libm.a",
+            "/* GNU ld script */\nGROUP ( /lib/libm.so.7 )\n");
+        const auto extensionless_ar = write_single_file_archive(
+            temporary.path(), "extensionless-ar.pkg.tar.gz",
+            "usr/lib/static-library", ar_payload(100, 0, "object"));
+        const auto extensionless_ar_retimed = write_single_file_archive(
+            temporary.path(), "extensionless-ar-retimed.pkg.tar.gz",
+            "usr/lib/static-library", ar_payload(200, 0, "object"));
 
         require(pkgbuild::parity::compare_archives(reference, reversed).equivalent(),
                 "hardlink target orientation changed semantic comparison");
@@ -400,6 +413,17 @@ int main()
         require(pkgbuild::parity::compare_archives(ar_reference, ar_retimed)
                     .equivalent(),
                 "ar member timestamps changed semantic comparison");
+        require(pkgbuild::parity::compare_archives(
+                    extensionless_ar, extensionless_ar_retimed).equivalent(),
+                "ar semantics depended on the package filename");
+        require(pkgbuild::parity::compare_archives(
+                    linker_script, linker_script).equivalent(),
+                "linker script named .a was rejected");
+        const auto changed_linker_script = pkgbuild::parity::compare_archives(
+            linker_script, linker_script_changed);
+        require(!changed_linker_script.equivalent() &&
+                    has_field(changed_linker_script, "payload-sha256"),
+                "linker script payload change was not reported");
         const auto reowned_ar = pkgbuild::parity::compare_archives(
             ar_reference, ar_reowned);
         require(!reowned_ar.equivalent() &&

@@ -84,7 +84,7 @@ public:
     {
         current_path_ = entry.path.string();
         normalize_gzip_ = is_compressed_manpage(current_path_);
-        normalize_ar_ = ends_with(current_path_, ".a");
+        normalize_ar_ = !normalize_gzip_;
         semantic_size_ = 0;
         gzip_finished_ = false;
 
@@ -168,6 +168,12 @@ public:
                                          current_path_ + "'");
             reset_inflater();
         }
+        if (normalize_ar_ && ar_state_ == ArState::magic) {
+            update_digest(ar_buffer_.data(), ar_buffer_size_);
+            semantic_size_ += ar_buffer_size_;
+            ar_buffer_size_ = 0;
+            normalize_ar_ = false;
+        }
         if (normalize_ar_ &&
             (ar_state_ != ArState::header || ar_buffer_size_ != 0))
             throw std::runtime_error("truncated ar archive payload: '" +
@@ -247,9 +253,17 @@ private:
                     throw std::runtime_error("thin ar archive is unsupported: '" +
                                              current_path_ + "'");
                 if (!std::equal(ar_buffer_.begin(), ar_buffer_.begin() + 8,
-                                ordinary.begin()))
-                    throw std::runtime_error("invalid ar archive magic: '" +
-                                             current_path_ + "'");
+                                ordinary.begin())) {
+                    update_digest(ar_buffer_.data(), 8);
+                    semantic_size_ += 8;
+                    ar_buffer_size_ = 0;
+                    normalize_ar_ = false;
+                    if (offset != size) {
+                        update_digest(data + offset, size - offset);
+                        semantic_size_ += size - offset;
+                    }
+                    return;
+                }
                 update_digest(ar_buffer_.data(), 8);
                 semantic_size_ += 8;
                 ar_buffer_size_ = 0;
