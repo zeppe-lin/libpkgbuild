@@ -28,6 +28,14 @@ must be valid single-member gzip streams.  Their decompressed sizes and
 payload hashes are compared, so gzip filename and timestamp headers do
 not create false differences.  Other gzip files remain byte-sensitive.
 
+Regular files whose package path ends in `.a` must be valid ordinary ar
+archives.  Their member timestamp fields are removed from the semantic
+hash, because sequential builds necessarily stamp them at different
+wall-clock times.  Every other archive byte remains significant, including
+member order, names, modes, uid/gid fields, long-name and symbol-table
+payloads, object
+payloads, and padding.  Thin archives remain invalid package payloads.
+
 Archive order, package compression representation, entry identifiers,
 and modification timestamps are not compared.  Hard links are compared
 as sorted path groups, so choosing a different regular member as the tar
@@ -56,10 +64,13 @@ The candidate runs first and allocates its normal private
 is reset at that exact path, and pkgmk is then configured to reuse it.
 Both builders therefore use the same recipe directory, configuration
 path, source cache, package-output directory, `$SRC`, `$PKG`, and `TMPDIR`.
-The common temporary directory is a private sibling of the reused workspace,
-not a child of it: pkgmk removes `PKGMK_WORK_DIR` before starting a build.
-This prevents both deleted-temporary-directory failures and paths embedded by
-compilers, libtool, LTO, or generated files from creating false semantic
+The runner also sets `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` for both engines,
+matching the production pkgmk/bsdtar build contract instead of inheriting
+an arbitrary caller locale.  The common temporary directory is a private
+sibling of the reused workspace, not a child of it: pkgmk removes
+`PKGMK_WORK_DIR` before starting a build.  This prevents both deleted
+temporary-directory failures and paths embedded by compilers, libtool,
+LTO, or generated files from creating false semantic
 mismatches.
 
 The bundled synthetic corpus can be passed as a directory:

@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.8.3
+LIBPKGBUILD 0.8.4
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -42,12 +42,17 @@ through the normalized API.  Legacy Pkgfile definitions currently map
 A successful check returns a move-only VerifiedSource that owns the
 file descriptor which was hashed.  Source copying and libarchive
 extraction consume a duplicate of that descriptor rather than reopening
-the pathname.  Libarchive extraction defers hard-link entries whose targets
-appear later in the source archive and resolves valid chains after ordinary
-payload extraction.  Unsafe and unresolved hard-link targets are rejected.
-The same source is rehashed after consumption, so either pathname replacement
-or mutation during use cannot introduce unverified bytes into the recipe
-workspace.  Successful checks are retained in
+the pathname.  Libarchive extraction prefers UTF-8 archive path metadata
+and falls back to native archive bytes when the active locale cannot
+represent a valid UTF-8 name.  Recoverable pathname-conversion warnings
+do not discard an otherwise valid entry.  Hard-link entries whose targets
+appear later in the source archive are deferred and resolved after
+ordinary payload extraction.  Unsafe and unresolved hard-link targets
+are rejected.  The reference frontend
+activates the locale selected by its explicit process environment before
+loading definitions or extracting sources.  The same source is rehashed
+after consumption, so either pathname replacement or mutation during use
+cannot introduce unverified bytes into the recipe workspace.  Successful checks are retained in
 `BuildReceipt::verifications`.
 
 MD5 remains suitable only for legacy accidental-corruption detection;
@@ -115,17 +120,21 @@ SHA-256 payload hashes while ignoring archive order, timestamps, and the
 choice of hard-link target member.  Gzip-compressed manual pages are
 compared through their decompressed content, so legacy gzip filename and
 timestamp headers do not obscure equivalent installation payloads.
-`pkgbuild-parity` builds Pkgfile cases in isolated trees with both
-production pkgmk and the reference libpkgbuild frontend.  It accepts the
-bundled directory corpus or an ordered manifest of real package
+Ordinary static ar archives are compared after removing only member
+timestamp fields;
+member order, names, modes, uid/gid fields, long-name and symbol tables,
+and member payloads remain significant.  `pkgbuild-parity` builds
+Pkgfile cases in isolated trees with both production pkgmk and the
+reference libpkgbuild frontend.  It accepts the bundled directory corpus or an ordered manifest of real package
 directories.  Corpus directory basenames are preserved and must match
 the Pkgfile package name.  Both builders share one canonical recipe,
-configuration path, source cache, package-output directory, absolute private
-workspace path, and private temporary directory.  The candidate allocates the
-workspace through the production engine; the runner then moves its archive
-aside, resets the workspace, and lets pkgmk reuse the exact path.  The common
-`TMPDIR` is a protected sibling rather than a child of `PKGMK_WORK_DIR`, because
-pkgmk removes its work directory during startup.
+configuration path, source cache, package-output directory, absolute
+private workspace path, private temporary directory, and explicit `C.UTF-8`
+locale.  The candidate allocates the workspace through the production
+engine; the runner then moves its archive aside, resets the workspace,
+and lets pkgmk reuse the exact path.  The common `TMPDIR` is a protected
+sibling rather than a child of `PKGMK_WORK_DIR`, because pkgmk removes its
+work directory during startup.
 
 A campaign may source the same baseline pkgmk configuration and may
 download missing sources explicitly.  Legacy build failures, candidate
@@ -193,13 +202,14 @@ Implemented
 * POSIX-BRE `.nostrip` normalization for Pkgfile definitions.
 * Deterministic, hardlink-safe manual-page compression and symlink rewrite.
 * Normalized footprint generation, legacy manifest parsing, comparison, and atomic replacement.
-* libpkgimage-based semantic archive comparison and pkgmk differential corpus runner.
+* libpkgimage-based semantic archive comparison, including ar timestamp
+  normalization, and pkgmk differential corpus runner.
 * Ordered real-package manifests with isolated shared source caches.
 * Per-case parity failure classification and retained diagnostic evidence.
 * Same-path sequential pkgmk/libpkgbuild parity execution with a shared private TMPDIR.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
-* Forward-hardlink-safe source extraction.
+* Forward-hardlink-safe, locale-independent UTF-8 source extraction.
 * Virtual ownership, symlink, hardlink, FIFO, and device-node archive
   metadata.
 * Private per-build workspaces.
