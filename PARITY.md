@@ -4,7 +4,8 @@ LIBPKGBUILD PARITY HARNESS
 The parity harness compares packages produced by the production shell
 pkgmk and by libpkgbuild.  It is a migration gate, not a compatibility
 shim: differences are reported and cause failure until they are either
-fixed or deliberately accepted in the implementation.
+fixed or deliberately accepted in both implementations.  There is no
+semantic allow-list.
 
 Archive comparison
 ------------------
@@ -28,8 +29,8 @@ payload hashes are compared, so gzip filename and timestamp headers do
 not create false differences.  Other gzip files remain byte-sensitive.
 
 Archive order, package compression representation, entry identifiers,
-and modification timestamps are not compared.  Hard links are compared as
-sorted path groups, so choosing a different regular member as the tar
+and modification timestamps are not compared.  Hard links are compared
+as sorted path groups, so choosing a different regular member as the tar
 hard-link target does not create a false difference.
 
 Usage:
@@ -44,42 +45,143 @@ and 2 for invalid input or an inspection failure.
 Corpus runner
 -------------
 
-`pkgbuild-parity` treats each immediate corpus directory containing a
-Pkgfile as a package directory and copies it into two isolated trees
-without changing its basename.  The directory basename must match the
-Pkgfile `name`, as required by both builders.  It runs pkgmk under
-fakeroot and runs
-the reference libpkgbuild frontend with the same package definition,
-source material, archive format, compression mode, and build identity.
-The resulting archives are then compared directly.  The runner also
-requires the exact package filename to match, so package name, version,
-release, and compression identity cannot drift while contents remain equal.
+`pkgbuild-parity` copies every package into separate pkgmk and
+libpkgbuild trees without changing the package directory basename.  The
+basename must match the Pkgfile `name`, as required by both builders.
+The builders share one isolated source cache so both consume the same
+source bytes, but package output and work directories remain separate.
+The exact package filename must also match, covering package name,
+version, release, and compression identity.
 
-A root caller must select an explicit non-root identity.  Example:
+The bundled synthetic corpus can be passed as a directory:
+
+```
+pkgbuild-parity [options] ./tests/parity/corpus
+```
+
+A real campaign uses `--manifest FILE`.  Each non-empty line is one
+package directory.  Lines whose first non-whitespace character is `#`
+are comments.  Relative paths are resolved against the manifest's
+parent directory.  Manifest order is preserved.  Duplicate resolved
+paths and duplicate package-directory basenames are rejected.
+
+For example:
+
+```
+# parity-corpus.list
+../pkgsrc-core/bash
+../pkgsrc-core/coreutils
+../pkgsrc-system/openssl
+../pkgsrc-system/zlib
+../pkgsrc-xorg/xorg-server
+```
+
+Run the real campaign with the production build configuration and
+explicit source acquisition:
 
 ```
 pkgbuild-parity \
-    --pkgmk /usr/bin/pkgmk \
-    --pkgbuild ./build/pkgbuild-example \
-    --helper ./libpkgbuild/pkgbuild-pkgfile.in \
-    --scanner ./build/pkgbuild-stage-scan \
+    --pkgmk /usr/sbin/pkgmk \
+    --pkgbuild "$PWD/build/pkgbuild-example" \
+    --helper "$PWD/libpkgbuild/pkgbuild-pkgfile.in" \
+    --scanner "$PWD/build/pkgbuild-stage-scan" \
     --fakeroot /usr/bin/fakeroot \
     --strip /usr/bin/strip \
     --build-user pkgbuild \
-    --work-dir ./build/parity-work \
-    ./tests/parity/corpus
+    --config /etc/pkgmk.conf \
+    --download \
+    --manifest "$PWD/parity-corpus.list" \
+    --work-dir "$PWD/build/parity-work"
 ```
 
-For an ordinary caller, omit `--build-user`.  The runner exits 0 only
-when every case is equivalent, 1 when at least one case differs, and 2
-when a build or harness operation fails.  `--keep-work` retains both
-build trees and prints their common workspace path.
+A root caller must select an explicit non-root identity.  An ordinary
+caller omits `--build-user`.
 
-The initial corpus covers ordinary files, numeric ownership, symbolic
+Results and evidence
+--------------------
+
+Every package produces exactly one result line:
+
+```
+PASS package
+LEGACY_BUILD_FAILED package
+CANDIDATE_BUILD_FAILED package
+SEMANTIC_MISMATCH package
+```
+
+A package-level failure does not stop the remaining manifest.  The final
+summary reports counts for each class.  Exit status is 0 only when every
+case passes, 1 when any package fails or differs, and 2 for invalid
+arguments or a harness-level operation that prevents the campaign from
+continuing.
+
+Both builders run with their internal work-retention options.  On
+failure, the complete case is moved beneath the private run workspace:
+
+```
+<work-base>/.pkgbuild-parity.XXXXXX/failed/<package>/
+    pkgmk/
+        <package>/
+        packages/
+        work/
+        stdout.log
+    libpkgbuild/
+        <package>/
+        packages/
+        work/
+        stdout.log
+    sources/
+    comparison.txt
+```
+
+`comparison.txt` records the source package directory, result class, and
+structured diagnostics.  `FAILED_WORK` prints the retained failure root.
+Successful case trees are removed unless `--keep-work` is supplied; with
+that option, `WORK` also prints the complete run workspace.
+
+The captured files contain builder standard output.  Standard error
+remains attached to the invoking terminal so compiler diagnostics and
+recipe tracing remain visible while the campaign runs.
+
+Initial corpus
+--------------
+
+The bundled corpus covers ordinary files, numeric ownership, symbolic
 and hard links, empty directories, manual-page compression, FIFOs, and
-device nodes.  It is intentionally small enough for offline CI and
-should be extended whenever a production package exposes another
-semantic boundary.
+device nodes.  `tests/parity/corpus.manifest` is the equivalent manifest
+form used by the runner tests.
+
+A representative real corpus should cover at least:
+
+* plain make, Autotools, CMake, and Meson recipes;
+* multiple source archives, renamed URI sources, and local patches;
+* generated files and architecture-dependent output;
+* PIE executables, shared libraries, and static ar archives;
+* `.nostrip` exclusions and hardlinked binaries;
+* ordinary, symlinked, and hardlinked manual pages;
+* non-root package ownership, special files, and empty directories;
+* 32-bit mode where supported; and
+* every supported package compression mode.
+
+Pkgman integration gate
+-----------------------
+
+The production build path may switch to libpkgbuild only after all of
+the following are true:
+
+```
+[ ] bundled synthetic corpus passes
+[ ] representative real-package manifest passes
+[ ] the real manifest passes on repeated clean runs
+[ ] source, ELF, .nostrip, link, ownership, and special-file cases pass
+[ ] the hardlinked-manpage policy is identical in both builders
+[ ] every observed difference is fixed or adopted in both builders
+[ ] no unexplained retained failure remains
+```
+
+After the gate is green, pkgman may consume `BuildReceipt::package` and
+continue to invoke external pkgadd temporarily.  Package planning and
+application remain separate later migrations.
 
 Building
 --------

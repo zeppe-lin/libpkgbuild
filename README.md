@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.7.0
+LIBPKGBUILD 0.8.0
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -108,18 +108,29 @@ SHA-256 payload hashes while ignoring archive order, timestamps, and the
 choice of hard-link target member.  Gzip-compressed manual pages are
 compared through their decompressed content, so legacy gzip filename and
 timestamp headers do not obscure equivalent installation payloads.
-`pkgbuild-parity` builds every
-Pkgfile case in an isolated corpus with both production pkgmk and the
-reference libpkgbuild frontend.  Corpus case directory basenames are
-preserved and must match the Pkgfile package name.  The runner fails on
-any semantic difference or package filename identity mismatch.
+`pkgbuild-parity` builds Pkgfile cases in isolated trees with both
+production pkgmk and the reference libpkgbuild frontend.  It accepts the
+bundled directory corpus or an ordered manifest of real package
+directories.  Corpus directory basenames are preserved and must match
+the Pkgfile package name.  Both builders share one isolated source cache
+but never share package or work output.
+
+A campaign may source the same baseline pkgmk configuration and may
+download missing sources explicitly.  Legacy build failures, candidate
+build failures, and semantic mismatches are classified separately and
+do not stop later cases.  Failed package trees, internal workspaces,
+stdout logs, and structured comparison reports are retained beneath the
+private run directory; successful trees are discarded unless
+`--keep-work` was requested.
 
 The runner executes pkgmk under fakeroot and applies the same explicit
-non-root build identity used by the candidate build.  It creates a
-private per-run workspace and never mutates the corpus.  The initial
+non-root build identity used by the candidate build.  It never mutates
+the corpus and does not provide semantic allow-lists.  The bundled
 corpus covers regular metadata, numeric ownership, symbolic and hard
-links, manual-page normalization, FIFOs, and device nodes.  See
-`PARITY.md` for command syntax and comparison rules.
+links, manual-page normalization, FIFOs, and device nodes.  Real package
+campaigns remain the release gate before pkgman integration.  See
+`PARITY.md` for manifest syntax, command examples, evidence layout, and
+comparison rules.
 
 Staged metadata model
 ---------------------
@@ -169,6 +180,8 @@ Implemented
 * Deterministic, hardlink-safe manual-page compression and symlink rewrite.
 * Normalized footprint generation, legacy manifest parsing, comparison, and atomic replacement.
 * libpkgimage-based semantic archive comparison and pkgmk differential corpus runner.
+* Ordered real-package manifests with isolated shared source caches.
+* Per-case parity failure classification and retained diagnostic evidence.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
 * Virtual ownership, symlink, hardlink, FIFO, and device-node archive
