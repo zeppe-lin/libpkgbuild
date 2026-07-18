@@ -45,13 +45,19 @@ and 2 for invalid input or an inspection failure.
 Corpus runner
 -------------
 
-`pkgbuild-parity` copies every package into separate pkgmk and
-libpkgbuild trees without changing the package directory basename.  The
-basename must match the Pkgfile `name`, as required by both builders.
-The builders share one isolated source cache so both consume the same
-source bytes, but package output and work directories remain separate.
-The exact package filename must also match, covering package name,
-version, release, and compression identity.
+`pkgbuild-parity` copies every package into one canonical recipe
+directory without changing its basename.  The basename must match the
+Pkgfile `name`, as required by both builders.  The exact package filename
+must also match, covering package name, version, release, and compression
+identity.
+
+The candidate runs first and allocates its normal private
+`.pkgbuild.XXXXXX` workspace.  Its archive is moved aside, the workspace
+is reset at that exact path, and pkgmk is then configured to reuse it.
+Both builders therefore use the same recipe directory, configuration
+path, source cache, package-output directory, `$SRC`, `$PKG`, and
+`TMPDIR`.  This prevents paths embedded by compilers, libtool, LTO, or
+generated files from creating false semantic mismatches.
 
 The bundled synthetic corpus can be passed as a directory:
 
@@ -115,33 +121,40 @@ case passes, 1 when any package fails or differs, and 2 for invalid
 arguments or a harness-level operation that prevents the campaign from
 continuing.
 
-Both builders run with their internal work-retention options.  On
-failure, the complete case is moved beneath the private run workspace:
+Both builders run with work retention enabled.  On failure, the case is
+moved beneath the private run workspace:
 
 ```
 <work-base>/.pkgbuild-parity.XXXXXX/failed/<package>/
+    recipe/<package>/
     pkgmk/
-        <package>/
         packages/
-        work/
-        stdout.log
+        build.log
     libpkgbuild/
-        <package>/
         packages/
-        work/
-        stdout.log
+        build.log
+        workspace.txt
+    packages/
     sources/
+    work/.pkgbuild.XXXXXX/
+    pkgmk.conf
     comparison.txt
 ```
+
+A successful candidate workspace is deliberately reset before the legacy
+build so both builders can occupy the same absolute path.  The candidate
+archive, complete combined build log, and selected workspace pathname remain
+retained.  The final `work/.pkgbuild.XXXXXX` tree belongs to the legacy run.
 
 `comparison.txt` records the source package directory, result class, and
 structured diagnostics.  `FAILED_WORK` prints the retained failure root.
 Successful case trees are removed unless `--keep-work` is supplied; with
 that option, `WORK` also prints the complete run workspace.
 
-The captured files contain builder standard output.  Standard error
-remains attached to the invoking terminal so compiler diagnostics and
-recipe tracing remain visible while the campaign runs.
+Each `build.log` contains merged standard output and standard error in one
+stream, including recipe tracing, compiler diagnostics, and frontend errors.
+The same stream is also relayed to the invoking terminal while the campaign
+runs.
 
 Initial corpus
 --------------

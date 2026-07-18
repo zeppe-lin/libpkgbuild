@@ -112,16 +112,20 @@ timestamp headers do not obscure equivalent installation payloads.
 production pkgmk and the reference libpkgbuild frontend.  It accepts the
 bundled directory corpus or an ordered manifest of real package
 directories.  Corpus directory basenames are preserved and must match
-the Pkgfile package name.  Both builders share one isolated source cache
-but never share package or work output.
+the Pkgfile package name.  Both builders share one canonical recipe,
+configuration path, source cache, package-output directory, and absolute
+private workspace path.  The candidate allocates that workspace through
+the production engine; the runner then moves its archive aside, resets
+the workspace, and lets pkgmk reuse the exact path.
 
 A campaign may source the same baseline pkgmk configuration and may
 download missing sources explicitly.  Legacy build failures, candidate
 build failures, and semantic mismatches are classified separately and
-do not stop later cases.  Failed package trees, internal workspaces,
-stdout logs, and structured comparison reports are retained beneath the
-private run directory; successful trees are discarded unless
-`--keep-work` was requested.
+do not stop later cases.  Failed package trees, combined stdout/stderr
+build logs, candidate and legacy archives, the final legacy workspace,
+and structured comparison reports are retained beneath the private run
+directory; successful trees are discarded unless `--keep-work` was
+requested.
 
 The runner executes pkgmk under fakeroot and applies the same explicit
 non-root build identity used by the candidate build.  It never mutates
@@ -182,6 +186,7 @@ Implemented
 * libpkgimage-based semantic archive comparison and pkgmk differential corpus runner.
 * Ordered real-package manifests with isolated shared source caches.
 * Per-case parity failure classification and retained diagnostic evidence.
+* Same-path sequential pkgmk/libpkgbuild parity execution.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
 * Virtual ownership, symlink, hardlink, FIFO, and device-node archive

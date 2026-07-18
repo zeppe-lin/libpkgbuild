@@ -7,6 +7,15 @@ process_executor_test = executable(
 
 test('process executor', process_executor_test)
 
+pkgfile_paths_test = find_program('pkgfile-paths-test.sh')
+test(
+  'Pkgfile execution paths',
+  pkgfile_paths_test,
+  args: [
+    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+  ],
+)
+
 workspace_test = executable(
   'workspace-test',
   'workspace-test.cpp',
