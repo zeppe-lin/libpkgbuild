@@ -3,10 +3,12 @@
 #include <pkgbuild/stage.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
 #include <map>
+#include <limits>
 #include <memory>
 #include <regex.h>
 #include <set>
@@ -385,6 +387,188 @@ const char* strip_option(StripMode mode)
     return "";
 }
 
+struct ArchiveMemberOwnership {
+    std::uint64_t header_offset{};
+    std::array<char, 16> name{};
+    std::array<char, 6> uid{};
+    std::array<char, 6> gid{};
+};
+
+void read_exact_at(int descriptor, void* data, std::size_t size,
+                   std::uint64_t offset,
+                   const std::filesystem::path& path)
+{
+    auto* output = static_cast<unsigned char*>(data);
+    std::size_t completed = 0;
+    while (completed != size) {
+        const auto position = static_cast<off_t>(offset + completed);
+        ssize_t count = 0;
+        do {
+            count = pread(descriptor, output + completed, size - completed,
+                          position);
+        } while (count < 0 && errno == EINTR);
+        if (count <= 0)
+            filesystem_error("cannot read ar archive", path);
+        completed += static_cast<std::size_t>(count);
+    }
+}
+
+void write_exact_at(int descriptor, const void* data, std::size_t size,
+                    std::uint64_t offset,
+                    const std::filesystem::path& path)
+{
+    const auto* input = static_cast<const unsigned char*>(data);
+    std::size_t completed = 0;
+    while (completed != size) {
+        const auto position = static_cast<off_t>(offset + completed);
+        ssize_t count = 0;
+        do {
+            count = pwrite(descriptor, input + completed, size - completed,
+                           position);
+        } while (count < 0 && errno == EINTR);
+        if (count <= 0)
+            filesystem_error("cannot restore ar member ownership", path);
+        completed += static_cast<std::size_t>(count);
+    }
+}
+
+std::uint64_t parse_ar_decimal(const char* data, std::size_t size,
+                               const std::filesystem::path& path)
+{
+    std::size_t first = 0;
+    while (first != size && data[first] == ' ')
+        ++first;
+    std::size_t last = size;
+    while (last != first && data[last - 1] == ' ')
+        --last;
+    if (first == last)
+        throw Error(ErrorCode::transformation_failed,
+                    "empty ar member size in " + path.string());
+
+    std::uint64_t value = 0;
+    for (std::size_t index = first; index != last; ++index) {
+        const unsigned char character =
+            static_cast<unsigned char>(data[index]);
+        if (character < '0' || character > '9')
+            throw Error(ErrorCode::transformation_failed,
+                        "invalid ar member size in " + path.string());
+        const auto digit = static_cast<std::uint64_t>(character - '0');
+        if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10)
+            throw Error(ErrorCode::transformation_failed,
+                        "ar member size overflow in " + path.string());
+        value = value * 10 + digit;
+    }
+    return value;
+}
+
+std::vector<ArchiveMemberOwnership>
+archive_member_ownership(int descriptor,
+                         const std::filesystem::path& path)
+{
+    struct stat status {};
+    if (fstat(descriptor, &status) != 0)
+        filesystem_error("cannot inspect ar archive", path);
+    if (!S_ISREG(status.st_mode) || status.st_size < 0)
+        throw Error(ErrorCode::transformation_failed,
+                    "ar archive is not a regular file: " + path.string());
+
+    constexpr std::array<char, 8> magic{
+        '!', '<', 'a', 'r', 'c', 'h', '>', '\n'};
+    std::array<char, 8> observed_magic{};
+    if (static_cast<std::uint64_t>(status.st_size) < observed_magic.size())
+        throw Error(ErrorCode::transformation_failed,
+                    "truncated ar archive: " + path.string());
+    read_exact_at(descriptor, observed_magic.data(), observed_magic.size(), 0,
+                  path);
+    if (observed_magic != magic)
+        throw Error(ErrorCode::transformation_failed,
+                    "invalid ar archive magic: " + path.string());
+
+    constexpr std::uint64_t header_size = 60;
+    constexpr std::uint64_t name_offset = 0;
+    constexpr std::uint64_t uid_offset = 28;
+    constexpr std::uint64_t gid_offset = 34;
+    constexpr std::uint64_t size_offset = 48;
+    constexpr std::uint64_t trailer_offset = 58;
+    const auto file_size = static_cast<std::uint64_t>(status.st_size);
+    std::vector<ArchiveMemberOwnership> ownership;
+    std::uint64_t offset = magic.size();
+    while (offset != file_size) {
+        if (offset > file_size || file_size - offset < header_size)
+            throw Error(ErrorCode::transformation_failed,
+                        "truncated ar member header in " + path.string());
+
+        std::array<char, header_size> header{};
+        read_exact_at(descriptor, header.data(), header.size(), offset, path);
+        if (header[trailer_offset] != '`' ||
+            header[trailer_offset + 1] != '\n')
+            throw Error(ErrorCode::transformation_failed,
+                        "invalid ar member trailer in " + path.string());
+
+        ArchiveMemberOwnership member;
+        member.header_offset = offset;
+        std::copy_n(header.data() + name_offset, member.name.size(),
+                    member.name.data());
+        std::copy_n(header.data() + uid_offset, member.uid.size(),
+                    member.uid.data());
+        std::copy_n(header.data() + gid_offset, member.gid.size(),
+                    member.gid.data());
+        ownership.push_back(member);
+
+        const auto payload_size = parse_ar_decimal(
+            header.data() + size_offset, 10, path);
+        const auto payload_offset = offset + header_size;
+        if (payload_offset > file_size ||
+            payload_size > file_size - payload_offset)
+            throw Error(ErrorCode::transformation_failed,
+                        "truncated ar member payload in " + path.string());
+        auto next = payload_offset + payload_size;
+        if ((payload_size & 1U) != 0)
+            ++next;
+        if (next > file_size)
+            throw Error(ErrorCode::transformation_failed,
+                        "truncated ar member padding in " + path.string());
+        offset = next;
+    }
+    return ownership;
+}
+
+std::vector<ArchiveMemberOwnership>
+archive_member_ownership(const std::filesystem::path& path)
+{
+    FileDescriptor input(open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    if (input.get() < 0)
+        filesystem_error("cannot open ar archive", path);
+    return archive_member_ownership(input.get(), path);
+}
+
+void restore_archive_member_ownership(
+    const std::filesystem::path& path,
+    const std::vector<ArchiveMemberOwnership>& expected)
+{
+    FileDescriptor archive(open(path.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW));
+    if (archive.get() < 0)
+        filesystem_error("cannot open stripped ar archive", path);
+    const auto observed = archive_member_ownership(archive.get(), path);
+    if (observed.size() != expected.size())
+        throw Error(ErrorCode::transformation_failed,
+                    "strip changed ar member count: " + path.string());
+
+    constexpr std::uint64_t uid_offset = 28;
+    constexpr std::uint64_t gid_offset = 34;
+    for (std::size_t index = 0; index != expected.size(); ++index) {
+        if (observed[index].name != expected[index].name)
+            throw Error(ErrorCode::transformation_failed,
+                        "strip changed ar member order: " + path.string());
+        write_exact_at(archive.get(), expected[index].uid.data(),
+                       expected[index].uid.size(),
+                       observed[index].header_offset + uid_offset, path);
+        write_exact_at(archive.get(), expected[index].gid.data(),
+                       expected[index].gid.size(),
+                       observed[index].header_offset + gid_offset, path);
+    }
+}
+
 class BasicRegex final {
 public:
     explicit BasicRegex(const std::string& pattern)
@@ -599,6 +783,9 @@ void strip_binaries(StagedPackage& package,
         auto [temporary_descriptor, temporary] =
             create_temporary_copy(full, execution);
         (void)temporary_descriptor;
+        const auto archive_ownership = mode == StripMode::debug
+            ? archive_member_ownership(temporary)
+            : std::vector<ArchiveMemberOwnership>{};
 
         emit(events, EventKind::command,
              "Stripping '" + canonical.string() + "'");
@@ -618,6 +805,15 @@ void strip_binaries(StagedPackage& package,
                         "strip failed for " + canonical.string() +
                             " with status " +
                             std::to_string(process.exit_status));
+        }
+
+        try {
+            if (mode == StripMode::debug)
+                restore_archive_member_ownership(temporary,
+                                                 archive_ownership);
+        } catch (...) {
+            (void)unlink(temporary.c_str());
+            throw;
         }
 
         struct stat transformed {};
