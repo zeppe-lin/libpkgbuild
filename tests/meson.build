@@ -116,6 +116,19 @@ test(
   args: [strip_program.full_path()],
 )
 
+archive_strip_ownership_test = executable(
+  'archive-strip-ownership-test',
+  'archive-strip-ownership-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test(
+  'archive strip ownership',
+  archive_strip_ownership_test,
+  args: [strip_program.full_path(), ar_program.full_path()],
+)
+
 normalization_pipeline_test = executable(
   'normalization-pipeline-test',
   'normalization-pipeline-test.cpp',

@@ -33,6 +33,7 @@ helper_define = '-DPKGBUILD_PKGFILE_HELPER="' + pkgfile_helper + '"'
 scanner_path = join_paths(get_option('prefix'), get_option('libexecdir'), 'pkgbuild-stage-scan')
 scanner_define = '-DPKGBUILD_STAGE_SCANNER="' + scanner_path + '"'
 strip_program = find_program('strip', required: true)
+ar_program = find_program('ar', required: true)
 strip_define = '-DPKGBUILD_STRIP="' + strip_program.full_path() + '"'
 
 inc = include_directories('include')
