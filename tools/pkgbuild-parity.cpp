@@ -239,6 +239,19 @@ public:
         return path_;
     }
 
+    void preserve() noexcept
+    {
+        keep_ = true;
+    }
+
+    void allow_identity_traversal(
+        const std::optional<pkgbuild::BuildIdentity>& identity)
+    {
+        if (identity && geteuid() == 0 && chmod(path_.c_str(), 0711) != 0)
+            throw std::runtime_error("cannot open parity workspace traversal: " +
+                                     std::string(std::strerror(errno)));
+    }
+
 private:
     static std::filesystem::path create(const std::filesystem::path& base)
     {
@@ -326,21 +339,134 @@ void write_build_config(
         throw std::runtime_error("cannot finish parity build configuration");
 }
 
-void run_checked(const pkgbuild::ProcessExecutor& executor,
-                 const pkgbuild::ProcessRequest& request,
-                 const std::string& label)
+enum class CaseStatus {
+    pass,
+    legacy_build_failed,
+    candidate_build_failed,
+    semantic_mismatch,
+};
+
+const char* status_name(CaseStatus status) noexcept
 {
-    const auto result = executor.execute(request);
-    if (result.ok())
-        return;
-    std::string diagnostic = label + " failed with status " +
+    switch (status) {
+    case CaseStatus::pass: return "PASS";
+    case CaseStatus::legacy_build_failed: return "LEGACY_BUILD_FAILED";
+    case CaseStatus::candidate_build_failed: return "CANDIDATE_BUILD_FAILED";
+    case CaseStatus::semantic_mismatch: return "SEMANTIC_MISMATCH";
+    }
+    return "UNKNOWN";
+}
+
+struct CaseResult {
+    CaseStatus status{CaseStatus::pass};
+    std::string name;
+    std::filesystem::path source;
+    std::filesystem::path root;
+    std::vector<std::string> details;
+
+    bool passed() const noexcept
+    {
+        return status == CaseStatus::pass;
+    }
+};
+
+void write_text(const std::filesystem::path& path, const std::string& value)
+{
+    std::ofstream output(path);
+    if (!output)
+        throw std::runtime_error("cannot write parity evidence: " +
+                                 path.string());
+    output << value;
+    if (!output)
+        throw std::runtime_error("cannot finish parity evidence: " +
+                                 path.string());
+}
+
+std::string process_status(const pkgbuild::ProcessResult& result)
+{
+    std::string diagnostic = "exit-status: " +
                              std::to_string(result.exit_status);
     if (result.termination_signal != 0)
-        diagnostic += " (signal " +
-                      std::to_string(result.termination_signal) + ")";
-    if (!result.stdout_data.empty())
-        diagnostic += "\n" + result.stdout_data;
-    throw std::runtime_error(diagnostic);
+        diagnostic += ", signal: " +
+                      std::to_string(result.termination_signal);
+    return diagnostic;
+}
+
+struct BuilderRun {
+    std::optional<pkgbuild::ProcessResult> result;
+    std::optional<std::string> error;
+};
+
+BuilderRun run_builder(const pkgbuild::ProcessExecutor& executor,
+                       pkgbuild::ProcessRequest request,
+                       const std::filesystem::path& log)
+{
+    request.capture_stdout = true;
+    try {
+        auto result = executor.execute(request);
+        write_text(log, result.stdout_data);
+        if (!result.stdout_data.empty())
+            std::cout << result.stdout_data;
+        return BuilderRun{std::move(result), std::nullopt};
+    } catch (const std::exception& error) {
+        write_text(log, std::string("executor-error: ") + error.what() + "\n");
+        return BuilderRun{std::nullopt, error.what()};
+    }
+}
+
+CaseResult failed_case(CaseStatus status,
+                       const std::string& name,
+                       const std::filesystem::path& source,
+                       const std::filesystem::path& root,
+                       std::vector<std::string> details)
+{
+    return CaseResult{status, name, source, root, std::move(details)};
+}
+
+void validate_archive(const std::filesystem::path& archive)
+{
+    const auto comparison = pkgbuild::parity::compare_archives(archive, archive);
+    if (!comparison.equivalent())
+        throw std::runtime_error("archive is not self-equivalent");
+}
+
+void write_case_report(const CaseResult& result)
+{
+    std::ofstream output(result.root / "comparison.txt");
+    if (!output)
+        throw std::runtime_error("cannot write retained parity report");
+    output << "case: " << result.name << '\n'
+           << "status: " << status_name(result.status) << '\n'
+           << "source: " << result.source << '\n';
+    for (const auto& detail : result.details)
+        output << "detail: " << detail << '\n';
+    if (!output)
+        throw std::runtime_error("cannot finish retained parity report");
+}
+
+void retain_failure(const std::filesystem::path& workspace, CaseResult& result)
+{
+    const auto failed = workspace / "failed";
+    std::filesystem::create_directories(failed);
+    if (chmod(failed.c_str(), 0700) != 0)
+        throw std::runtime_error("cannot protect retained parity directory: " +
+                                 std::string(std::strerror(errno)));
+    const auto destination = failed / result.name;
+    if (std::filesystem::exists(destination))
+        throw std::runtime_error("duplicate retained parity case: " +
+                                 result.name);
+    std::filesystem::rename(result.root, destination);
+    result.root = destination;
+    write_case_report(result);
+}
+
+void print_case_result(const CaseResult& result)
+{
+    std::cout << status_name(result.status) << ' ' << result.name << '\n';
+    for (const auto& detail : result.details)
+        std::cout << "  " << detail << '\n';
+    if (!result.passed())
+        std::cout << "  retained: " << result.root << '\n';
 }
 
 std::filesystem::path find_package(const std::filesystem::path& directory)
@@ -456,12 +582,12 @@ std::vector<std::filesystem::path> corpus_cases(
     return result;
 }
 
-bool run_case(const Options& options,
-              const pkgbuild::ProcessExecutor& executor,
-              const std::optional<pkgbuild::BuildIdentity>& identity,
-              const std::map<std::string, std::string>& environment,
-              const std::filesystem::path& workspace,
-              const std::filesystem::path& corpus_case)
+CaseResult run_case(const Options& options,
+                    const pkgbuild::ProcessExecutor& executor,
+                    const std::optional<pkgbuild::BuildIdentity>& identity,
+                    const std::map<std::string, std::string>& environment,
+                    const std::filesystem::path& workspace,
+                    const std::filesystem::path& corpus_case)
 {
     const std::string name = corpus_case.filename().string();
     const auto root = workspace / name;
@@ -493,12 +619,12 @@ bool run_case(const Options& options,
 
     std::vector<std::string> legacy_arguments = {
         "--", options.pkgmk.string(), "-cf", legacy_config.string(),
-        "-f", "-if",
+        "-f", "-if", "-kw",
     };
     if (options.download)
         legacy_arguments.push_back("-d");
 
-    run_checked(
+    const auto legacy_run = run_builder(
         executor,
         pkgbuild::ProcessRequest{
             options.fakeroot,
@@ -507,10 +633,27 @@ bool run_case(const Options& options,
             environment,
             identity,
             0022,
-            false,
+            true,
             true,
         },
-        "pkgmk case '" + name + "'");
+        legacy / "stdout.log");
+    if (legacy_run.error) {
+        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
+                           root, {"executor-error: " + *legacy_run.error});
+    }
+    if (!legacy_run.result->ok()) {
+        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
+                           root, {process_status(*legacy_run.result)});
+    }
+
+    std::filesystem::path reference;
+    try {
+        reference = find_package(legacy_packages);
+        validate_archive(reference);
+    } catch (const std::exception& error) {
+        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
+                           root, {std::string("artifact-error: ") + error.what()});
+    }
 
     std::vector<std::string> candidate_arguments = {
         "--source-dir", sources.string(),
@@ -521,12 +664,13 @@ bool run_case(const Options& options,
         "--scanner", options.scanner.string(),
         "--fakeroot", options.fakeroot.string(),
         "--strip", options.strip.string(),
+        "--keep-work",
     };
     if (options.download)
         candidate_arguments.push_back("--download");
     candidate_arguments.push_back(candidate_recipe.string());
 
-    run_checked(
+    const auto candidate_run = run_builder(
         executor,
         pkgbuild::ProcessRequest{
             options.pkgbuild,
@@ -538,28 +682,45 @@ bool run_case(const Options& options,
             true,
             true,
         },
-        "libpkgbuild case '" + name + "'");
-
-    const auto reference = find_package(legacy_packages);
-    const auto result = find_package(candidate_packages);
-    const bool same_filename =
-        reference.filename().string() == result.filename().string();
-    const auto comparison = pkgbuild::parity::compare_archives(reference, result);
-    if (same_filename && comparison.equivalent()) {
-        std::cout << "PASS " << name << '\n';
-        return true;
+        candidate / "stdout.log");
+    if (candidate_run.error) {
+        return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
+                           root, {"executor-error: " + *candidate_run.error});
+    }
+    if (!candidate_run.result->ok()) {
+        return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
+                           root, {process_status(*candidate_run.result)});
     }
 
-    std::cout << "FAIL " << name << '\n';
-    if (!same_filename) {
-        std::cout << "  package-filename: "
-                  << reference.filename().string() << " -> "
-                  << result.filename().string() << '\n';
+    std::filesystem::path result;
+    try {
+        result = find_package(candidate_packages);
+        validate_archive(result);
+    } catch (const std::exception& error) {
+        return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
+                           root, {std::string("artifact-error: ") + error.what()});
     }
-    for (const auto& difference : comparison.differences)
-        std::cout << "  " << pkgbuild::parity::format_difference(difference)
-                  << '\n';
-    return false;
+
+    std::vector<std::string> details;
+    if (reference.filename() != result.filename()) {
+        details.push_back("package-filename: " +
+                          reference.filename().string() + " -> " +
+                          result.filename().string());
+    }
+
+    try {
+        const auto comparison =
+            pkgbuild::parity::compare_archives(reference, result);
+        for (const auto& difference : comparison.differences)
+            details.push_back(pkgbuild::parity::format_difference(difference));
+    } catch (const std::exception& error) {
+        details.push_back(std::string("comparison-error: ") + error.what());
+    }
+
+    if (!details.empty())
+        return failed_case(CaseStatus::semantic_mismatch, name, corpus_case,
+                           root, std::move(details));
+    return CaseResult{CaseStatus::pass, name, corpus_case, root, {}};
 }
 
 } // namespace
@@ -576,19 +737,46 @@ int main(int argc, char** argv)
 
         const auto environment = selected_environment(identity);
         Workspace workspace(options.work_base, options.keep_work);
-        assign_tree(workspace.path(), identity);
+        workspace.allow_identity_traversal(identity);
         pkgbuild::PosixProcessExecutor executor;
 
-        bool equivalent = true;
+        std::map<CaseStatus, std::size_t> counts;
         const auto cases = options.manifest ? manifest_cases(*options.manifest)
                                             : corpus_cases(options.corpus);
-        for (const auto& corpus_case : cases)
-            equivalent = run_case(options, executor, identity, environment,
-                                  workspace.path(), corpus_case) && equivalent;
+        for (const auto& corpus_case : cases) {
+            auto result = run_case(options, executor, identity, environment,
+                                   workspace.path(), corpus_case);
+            ++counts[result.status];
+            if (result.passed()) {
+                print_case_result(result);
+                if (!options.keep_work)
+                    std::filesystem::remove_all(result.root);
+                continue;
+            }
+
+            workspace.preserve();
+            retain_failure(workspace.path(), result);
+            print_case_result(result);
+        }
+
+        std::cout << "SUMMARY"
+                  << " pass=" << counts[CaseStatus::pass]
+                  << " legacy-build-failed="
+                  << counts[CaseStatus::legacy_build_failed]
+                  << " candidate-build-failed="
+                  << counts[CaseStatus::candidate_build_failed]
+                  << " semantic-mismatch="
+                  << counts[CaseStatus::semantic_mismatch] << '\n';
 
         if (options.keep_work)
             std::cout << "WORK " << workspace.path() << '\n';
-        return equivalent ? 0 : 1;
+        const std::size_t failures =
+            counts[CaseStatus::legacy_build_failed] +
+            counts[CaseStatus::candidate_build_failed] +
+            counts[CaseStatus::semantic_mismatch];
+        if (failures != 0)
+            std::cout << "FAILED_WORK " << workspace.path() / "failed" << '\n';
+        return failures == 0 ? 0 : 1;
     } catch (const pkgbuild::Error& error) {
         std::cerr << "pkgbuild-parity: " << error.what() << '\n';
         return 2;

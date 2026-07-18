@@ -51,8 +51,9 @@ status=$?
 set -e
 
 test "$status" -eq 1
-printf '%s\n' "$output" | grep -q '^FAIL fake$'
+printf '%s\n' "$output" | grep -q '^SEMANTIC_MISMATCH fake$'
 printf '%s\n' "$output" | grep -q 'payload-sha256'
+printf '%s\n' "$output" | grep -q '^FAILED_WORK '
 
 set +e
 # shellcheck disable=SC2086
@@ -70,7 +71,7 @@ identity_status=$?
 set -e
 
 test "$identity_status" -eq 1
-printf '%s\n' "$identity_output" | grep -q '^FAIL fake$'
+printf '%s\n' "$identity_output" | grep -q '^SEMANTIC_MISMATCH fake$'
 printf '%s\n' "$identity_output" | grep -q 'package-filename'
 
 echo 'parity corpus runner: PASS'
