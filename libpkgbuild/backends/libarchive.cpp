@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <memory>
+#include <vector>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -67,6 +68,74 @@ private:
 
 using ArchivePtr = std::unique_ptr<archive, ArchiveDeleter>;
 using EntryPtr = std::unique_ptr<archive_entry, EntryDeleter>;
+
+[[noreturn]] void archive_error(ErrorCode code,
+                                archive* handle,
+                                const std::string& operation);
+
+struct DeferredHardlink {
+    EntryPtr entry;
+    std::filesystem::path path;
+    std::filesystem::path target;
+};
+
+bool archive_object_exists(const std::filesystem::path& path)
+{
+    struct stat status {};
+    if (lstat(path.c_str(), &status) == 0)
+        return true;
+    if (errno == ENOENT || errno == ENOTDIR)
+        return false;
+    throw Error(ErrorCode::extraction_failed,
+                "cannot inspect deferred hard-link target '" +
+                    path.string() + "': " + std::strerror(errno));
+}
+
+void write_deferred_hardlinks(
+    archive* output,
+    const std::filesystem::path& destination,
+    std::vector<DeferredHardlink> deferred)
+{
+    while (!deferred.empty()) {
+        bool progress = false;
+        std::vector<DeferredHardlink> pending;
+        pending.reserve(deferred.size());
+
+        for (auto& hardlink : deferred) {
+            const auto target =
+                std::filesystem::absolute(destination / hardlink.target);
+            if (!archive_object_exists(target)) {
+                pending.push_back(std::move(hardlink));
+                continue;
+            }
+
+            const auto path =
+                std::filesystem::absolute(destination / hardlink.path);
+            archive_entry_set_pathname(hardlink.entry.get(), path.c_str());
+            archive_entry_set_hardlink(hardlink.entry.get(), target.c_str());
+            archive_entry_set_size(hardlink.entry.get(), 0);
+
+            const int header = archive_write_header(output, hardlink.entry.get());
+            if (header < ARCHIVE_WARN)
+                archive_error(ErrorCode::extraction_failed, output,
+                              "creating deferred hard-link entry");
+            if (archive_write_finish_entry(output) != ARCHIVE_OK)
+                archive_error(ErrorCode::extraction_failed, output,
+                              "finishing deferred hard-link entry");
+            progress = true;
+        }
+
+        if (!progress) {
+            const auto& hardlink = pending.front();
+            throw Error(
+                ErrorCode::extraction_failed,
+                "hard-link target '" + hardlink.target.generic_string() +
+                    "' for '" + hardlink.path.generic_string() +
+                    "' does not exist in source archive");
+        }
+        deferred = std::move(pending);
+    }
+}
 
 [[noreturn]] void archive_error(ErrorCode code,
                                 archive* handle,
@@ -359,12 +428,31 @@ void LibarchiveBackend::extract(const ExtractRequest& request,
         archive_error(ErrorCode::extraction_failed, input.get(),
                       "opening verified source archive");
 
+    std::vector<DeferredHardlink> deferred_hardlinks;
     archive_entry* entry = nullptr;
     while (archive_read_next_header(input.get(), &entry) == ARCHIVE_OK) {
         const std::filesystem::path original = archive_entry_pathname(entry);
         if (!safe_archive_path(original))
             throw Error(ErrorCode::extraction_failed,
                         "unsafe path in source archive: " + original.string());
+
+        if (const char* hardlink_name = archive_entry_hardlink(entry)) {
+            const std::filesystem::path target = hardlink_name;
+            if (!safe_archive_path(target))
+                throw Error(ErrorCode::extraction_failed,
+                            "unsafe hard-link target in source archive: " +
+                                target.string());
+            EntryPtr clone(archive_entry_clone(entry));
+            if (!clone)
+                throw Error(ErrorCode::extraction_failed,
+                            "cannot retain deferred hard-link entry");
+            deferred_hardlinks.push_back(
+                DeferredHardlink{std::move(clone), original, target});
+            if (archive_read_data_skip(input.get()) != ARCHIVE_OK)
+                archive_error(ErrorCode::extraction_failed, input.get(),
+                              "skipping deferred hard-link data");
+            continue;
+        }
 
         const auto destination =
             std::filesystem::absolute(request.destination / original);
@@ -386,6 +474,9 @@ void LibarchiveBackend::extract(const ExtractRequest& request,
     if (archive_errno(input.get()) != 0)
         archive_error(ErrorCode::extraction_failed, input.get(),
                       "reading source archive");
+
+    write_deferred_hardlinks(output.get(), request.destination,
+                             std::move(deferred_hardlinks));
 }
 
 bool LibarchiveBackend::supports(const ArchiveSpec&) const noexcept

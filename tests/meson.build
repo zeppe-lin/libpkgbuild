@@ -34,6 +34,15 @@ archive_integrity_test = executable(
 
 test('staged archive integrity', archive_integrity_test)
 
+source_extraction_test = executable(
+  'source-extraction-test',
+  'source-extraction-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('source archive extraction', source_extraction_test)
+
 fakeroot_program = find_program('fakeroot', required: true)
 fakeroot_metadata_test = executable(
   'fakeroot-metadata-test',
