@@ -206,6 +206,8 @@ std::map<std::string, std::string> selected_environment(
         if (const char* value = std::getenv(name))
             result.emplace(name, value);
     }
+    result["LANG"] = "C.UTF-8";
+    result["LC_ALL"] = "C.UTF-8";
     if (identity) {
         result["HOME"] = identity->home.string();
         result["USER"] = identity->user;

@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+if [ "${LANG:-}" != C.UTF-8 ] || [ "${LC_ALL:-}" != C.UTF-8 ]; then
+    echo "fake-pkgmk: parity locale is not C.UTF-8" >&2
+    exit 2
+fi
+
 package_name=$(basename "$PWD")
 # Fixture Pkgfiles contain data assignments and an inert build function.
 # shellcheck disable=SC1091

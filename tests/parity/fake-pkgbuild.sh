@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+if [ "${LANG:-}" != C.UTF-8 ] || [ "${LC_ALL:-}" != C.UTF-8 ]; then
+    echo "fake-pkgbuild: parity locale is not C.UTF-8" >&2
+    exit 2
+fi
+
 package_dir=
 work_base=
 tmp_dir=

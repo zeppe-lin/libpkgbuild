@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <array>
+#include <clocale>
 #include <cstdlib>
 #include <map>
 #include <grp.h>
@@ -131,6 +132,9 @@ std::string require_argument(int& index, int argc, char** argv)
 int main(int argc, char** argv)
 {
     try {
+        if (std::setlocale(LC_ALL, "") == nullptr)
+            throw std::runtime_error("cannot activate process locale");
+
         std::filesystem::path recipe_dir = std::filesystem::current_path();
         std::optional<std::filesystem::path> config_file;
         std::optional<std::filesystem::path> source_dir;
