@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <pwd.h>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
@@ -50,7 +51,10 @@ struct Options {
     std::filesystem::path fakeroot{PKGBUILD_FAKEROOT};
     std::filesystem::path strip{PKGBUILD_STRIP};
     std::optional<std::string> build_user;
+    std::optional<std::filesystem::path> config_file;
+    std::optional<std::filesystem::path> manifest;
     std::filesystem::path work_base;
+    bool download{false};
     bool keep_work{false};
     std::filesystem::path corpus;
 };
@@ -58,7 +62,8 @@ struct Options {
 [[noreturn]] void usage(const char* program, int status)
 {
     std::ostream& output = status == 0 ? std::cout : std::cerr;
-    output << "Usage: " << program << " [options] CORPUS-DIRECTORY\n"
+    output << "Usage: " << program
+           << " [options] [CORPUS-DIRECTORY]\n"
            << "\n"
            << "Required options:\n"
            << "  --pkgmk FILE           legacy pkgmk executable\n"
@@ -70,7 +75,10 @@ struct Options {
            << "  --fakeroot FILE        fakeroot frontend path\n"
            << "  --strip FILE           strip executable path\n"
            << "  --build-user USER      non-root identity for root callers\n"
+           << "  --config FILE          source baseline pkgmk configuration\n"
+           << "  --manifest FILE        read package directories from FILE\n"
            << "  --work-dir DIR         workspace base\n"
+           << "  -d, --download         download missing URI sources\n"
            << "  --keep-work            retain generated corpus workspace\n"
            << "  -h, --help             show this help\n";
     std::exit(status);
@@ -112,8 +120,14 @@ Options parse_options(int argc, char** argv)
             options.strip = require_argument(i, argc, argv);
         } else if (option == "--build-user") {
             options.build_user = require_argument(i, argc, argv);
+        } else if (option == "--config") {
+            options.config_file = require_argument(i, argc, argv);
+        } else if (option == "--manifest") {
+            options.manifest = require_argument(i, argc, argv);
         } else if (option == "--work-dir") {
             options.work_base = require_argument(i, argc, argv);
+        } else if (option == "-d" || option == "--download") {
+            options.download = true;
         } else if (option == "--keep-work") {
             options.keep_work = true;
         } else if (option == "-h" || option == "--help") {
@@ -128,7 +142,7 @@ Options parse_options(int argc, char** argv)
     }
 
     if (options.pkgmk.empty() || options.pkgbuild.empty() ||
-        options.corpus.empty())
+        (options.corpus.empty() == !options.manifest))
         usage(argv[0], 2);
 
     options.pkgmk = absolute_program(options.pkgmk, "--pkgmk");
@@ -137,8 +151,18 @@ Options parse_options(int argc, char** argv)
     options.scanner = absolute_program(options.scanner, "--scanner");
     options.fakeroot = absolute_program(options.fakeroot, "--fakeroot");
     options.strip = absolute_program(options.strip, "--strip");
+    if (options.config_file) {
+        options.config_file = std::filesystem::absolute(*options.config_file);
+        if (!std::filesystem::is_regular_file(*options.config_file))
+            throw std::runtime_error(
+                "baseline configuration is not a regular file: " +
+                options.config_file->string());
+    }
+    if (options.manifest)
+        options.manifest = std::filesystem::absolute(*options.manifest);
     options.work_base = std::filesystem::absolute(options.work_base);
-    options.corpus = std::filesystem::absolute(options.corpus);
+    if (!options.corpus.empty())
+        options.corpus = std::filesystem::absolute(options.corpus);
     return options;
 }
 
@@ -278,22 +302,28 @@ std::string shell_quote(const std::filesystem::path& path)
     return result;
 }
 
-void write_pkgmk_config(const std::filesystem::path& filename,
-                        const std::filesystem::path& sources,
-                        const std::filesystem::path& packages,
-                        const std::filesystem::path& work)
+void write_build_config(
+    const std::filesystem::path& filename,
+    const std::optional<std::filesystem::path>& baseline,
+    const std::filesystem::path& sources,
+    const std::filesystem::path& packages,
+    const std::filesystem::path& work)
 {
     std::ofstream output(filename);
     if (!output)
-        throw std::runtime_error("cannot write pkgmk parity configuration");
+        throw std::runtime_error("cannot write parity build configuration");
+    if (baseline)
+        output << ". " << shell_quote(*baseline) << '\n';
     output << "PKGMK_SOURCE_DIR=" << shell_quote(sources) << '\n'
            << "PKGMK_PACKAGE_DIR=" << shell_quote(packages) << '\n'
            << "PKGMK_WORK_DIR=" << shell_quote(work) << '\n'
-           << "PKGMK_IGNORE_FOOTPRINT=yes\n"
-           << "PKGMK_ARCHIVE_FORMAT=gnutar\n"
-           << "PKGMK_COMPRESSION_MODE=gz\n";
+           << "PKGMK_IGNORE_FOOTPRINT=yes\n";
+    if (!baseline) {
+        output << "PKGMK_ARCHIVE_FORMAT=gnutar\n"
+               << "PKGMK_COMPRESSION_MODE=gz\n";
+    }
     if (!output)
-        throw std::runtime_error("cannot finish pkgmk parity configuration");
+        throw std::runtime_error("cannot finish parity build configuration");
 }
 
 void run_checked(const pkgbuild::ProcessExecutor& executor,
@@ -329,6 +359,80 @@ std::filesystem::path find_package(const std::filesystem::path& directory)
     return std::filesystem::absolute(packages.front());
 }
 
+std::filesystem::path validate_case(const std::filesystem::path& value,
+                                    const std::string& origin)
+{
+    std::error_code error;
+    const auto path = std::filesystem::canonical(value, error);
+    if (error)
+        throw std::runtime_error(origin + ": cannot resolve package directory '" +
+                                 value.string() + "': " + error.message());
+    if (!std::filesystem::is_directory(path) ||
+        !std::filesystem::is_regular_file(path / "Pkgfile"))
+        throw std::runtime_error(origin + ": package directory has no Pkgfile: " +
+                                 path.string());
+    return path;
+}
+
+void validate_unique_case(
+    const std::filesystem::path& path,
+    const std::string& origin,
+    std::set<std::filesystem::path>& paths,
+    std::set<std::string>& names)
+{
+    if (!paths.insert(path).second)
+        throw std::runtime_error(origin + ": duplicate package directory: " +
+                                 path.string());
+    const auto name = path.filename().string();
+    if (name.empty() || !names.insert(name).second)
+        throw std::runtime_error(origin + ": duplicate package basename: " + name);
+}
+
+std::string trim_manifest_line(const std::string& line)
+{
+    const auto first = line.find_first_not_of(" \t\r");
+    if (first == std::string::npos)
+        return {};
+    const auto last = line.find_last_not_of(" \t\r");
+    return line.substr(first, last - first + 1);
+}
+
+std::vector<std::filesystem::path> manifest_cases(
+    const std::filesystem::path& manifest)
+{
+    std::ifstream input(manifest);
+    if (!input)
+        throw std::runtime_error("cannot open parity manifest: " +
+                                 manifest.string());
+
+    std::vector<std::filesystem::path> result;
+    std::set<std::filesystem::path> paths;
+    std::set<std::string> names;
+    std::string line;
+    std::size_t line_number = 0;
+    while (std::getline(input, line)) {
+        ++line_number;
+        const auto value = trim_manifest_line(line);
+        if (value.empty() || value.front() == '#')
+            continue;
+
+        std::filesystem::path path(value);
+        if (path.is_relative())
+            path = manifest.parent_path() / path;
+        const auto origin = manifest.string() + ":" +
+                            std::to_string(line_number);
+        path = validate_case(path, origin);
+        validate_unique_case(path, origin, paths, names);
+        result.push_back(std::move(path));
+    }
+    if (!input.eof())
+        throw std::runtime_error("cannot read parity manifest: " +
+                                 manifest.string());
+    if (result.empty())
+        throw std::runtime_error("parity manifest contains no package directories");
+    return result;
+}
+
 std::vector<std::filesystem::path> corpus_cases(
     const std::filesystem::path& corpus)
 {
@@ -336,10 +440,15 @@ std::vector<std::filesystem::path> corpus_cases(
         throw std::runtime_error("corpus is not a directory: " + corpus.string());
 
     std::vector<std::filesystem::path> result;
+    std::set<std::filesystem::path> paths;
+    std::set<std::string> names;
     for (const auto& item : std::filesystem::directory_iterator(corpus)) {
         if (item.is_directory() &&
-            std::filesystem::is_regular_file(item.path() / "Pkgfile"))
-            result.push_back(item.path());
+            std::filesystem::is_regular_file(item.path() / "Pkgfile")) {
+            auto path = validate_case(item.path(), corpus.string());
+            validate_unique_case(path, corpus.string(), paths, names);
+            result.push_back(std::move(path));
+        }
     }
     std::sort(result.begin(), result.end());
     if (result.empty())
@@ -362,8 +471,7 @@ bool run_case(const Options& options,
     const auto candidate_recipe = candidate / name;
     const auto legacy_packages = legacy / "packages";
     const auto candidate_packages = candidate / "packages";
-    const auto legacy_sources = legacy / "sources";
-    const auto candidate_sources = candidate / "sources";
+    const auto sources = root / "sources";
     const auto legacy_work = legacy / "work";
     const auto candidate_work = candidate / "work";
 
@@ -371,21 +479,30 @@ bool run_case(const Options& options,
     copy_recipe(corpus_case, candidate_recipe);
     std::filesystem::create_directories(legacy_packages);
     std::filesystem::create_directories(candidate_packages);
-    std::filesystem::create_directories(legacy_sources);
-    std::filesystem::create_directories(candidate_sources);
+    std::filesystem::create_directories(sources);
     std::filesystem::create_directories(legacy_work);
     std::filesystem::create_directories(candidate_work);
 
-    const auto config = legacy / "pkgmk.conf";
-    write_pkgmk_config(config, legacy_sources, legacy_packages, legacy_work);
+    const auto legacy_config = legacy / "pkgmk.conf";
+    const auto candidate_config = candidate / "pkgmk.conf";
+    write_build_config(legacy_config, options.config_file, sources,
+                       legacy_packages, legacy_work);
+    write_build_config(candidate_config, options.config_file, sources,
+                       candidate_packages, candidate_work);
     assign_tree(root, identity);
+
+    std::vector<std::string> legacy_arguments = {
+        "--", options.pkgmk.string(), "-cf", legacy_config.string(),
+        "-f", "-if",
+    };
+    if (options.download)
+        legacy_arguments.push_back("-d");
 
     run_checked(
         executor,
         pkgbuild::ProcessRequest{
             options.fakeroot,
-            {"--", options.pkgmk.string(), "-cf", config.string(),
-             "-f", "-if"},
+            std::move(legacy_arguments),
             legacy_recipe,
             environment,
             identity,
@@ -395,18 +512,25 @@ bool run_case(const Options& options,
         },
         "pkgmk case '" + name + "'");
 
+    std::vector<std::string> candidate_arguments = {
+        "--source-dir", sources.string(),
+        "--package-dir", candidate_packages.string(),
+        "--work-dir", candidate_work.string(),
+        "--config", candidate_config.string(),
+        "--helper", options.helper.string(),
+        "--scanner", options.scanner.string(),
+        "--fakeroot", options.fakeroot.string(),
+        "--strip", options.strip.string(),
+    };
+    if (options.download)
+        candidate_arguments.push_back("--download");
+    candidate_arguments.push_back(candidate_recipe.string());
+
     run_checked(
         executor,
         pkgbuild::ProcessRequest{
             options.pkgbuild,
-            {"--source-dir", candidate_sources.string(),
-             "--package-dir", candidate_packages.string(),
-             "--work-dir", candidate_work.string(),
-             "--helper", options.helper.string(),
-             "--scanner", options.scanner.string(),
-             "--fakeroot", options.fakeroot.string(),
-             "--strip", options.strip.string(),
-             candidate_recipe.string()},
+            std::move(candidate_arguments),
             candidate_recipe,
             environment,
             identity,
@@ -456,7 +580,9 @@ int main(int argc, char** argv)
         pkgbuild::PosixProcessExecutor executor;
 
         bool equivalent = true;
-        for (const auto& corpus_case : corpus_cases(options.corpus))
+        const auto cases = options.manifest ? manifest_cases(*options.manifest)
+                                            : corpus_cases(options.corpus);
+        for (const auto& corpus_case : cases)
             equivalent = run_case(options, executor, identity, environment,
                                   workspace.path(), corpus_case) && equivalent;
 

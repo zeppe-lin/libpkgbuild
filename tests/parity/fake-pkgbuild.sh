@@ -9,8 +9,11 @@ while [ "$#" -gt 0 ]; do
         package_dir=$2
         shift 2
         ;;
-    --source-dir|--work-dir|--helper|--scanner|--fakeroot|--strip)
+    --source-dir|--work-dir|--config|--helper|--scanner|--fakeroot|--strip)
         shift 2
+        ;;
+    --download|--keep-work)
+        shift
         ;;
     *)
         recipe=$1
