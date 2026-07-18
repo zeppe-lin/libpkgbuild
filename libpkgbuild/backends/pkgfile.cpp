@@ -235,7 +235,10 @@ process_environment(const ExecutionPolicy& policy,
 
     environment.try_emplace("PATH", "/usr/bin:/bin");
     environment.try_emplace("LANG", "C");
-    environment["TMPDIR"] = std::filesystem::absolute(temporary_directory).string();
+    const auto temporary = policy.temporary_directory
+        ? std::filesystem::absolute(*policy.temporary_directory)
+        : std::filesystem::absolute(temporary_directory);
+    environment["TMPDIR"] = temporary.string();
 
     if (policy.identity) {
         environment["HOME"] = policy.identity->home.string();

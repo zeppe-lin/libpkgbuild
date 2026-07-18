@@ -101,6 +101,7 @@ struct ExecutionPolicy {
     std::optional<BuildIdentity> identity;
     std::map<std::string, std::string> environment;
     mode_t file_creation_mask{0022};
+    std::optional<std::filesystem::path> temporary_directory;
 };
 
 struct BuildPaths {

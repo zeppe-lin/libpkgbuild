@@ -63,6 +63,7 @@ public:
            << "      --source-dir DIR     source cache directory\n"
            << "      --package-dir DIR    package output directory\n"
            << "      --work-dir DIR       private workspace base\n"
+           << "      --tmp-dir DIR        controlled recipe temporary directory\n"
            << "      --helper FILE        pkgfile/0 worker path\n"
            << "      --scanner FILE       staged metadata scanner path\n"
            << "      --fakeroot FILE      fakeroot frontend path\n"
@@ -135,6 +136,7 @@ int main(int argc, char** argv)
         std::optional<std::filesystem::path> source_dir;
         std::optional<std::filesystem::path> package_dir;
         std::optional<std::filesystem::path> work_dir;
+        std::optional<std::filesystem::path> temporary_directory;
         std::filesystem::path helper = PKGBUILD_PKGFILE_HELPER;
         std::filesystem::path scanner = PKGBUILD_STAGE_SCANNER;
         std::filesystem::path fakeroot = PKGBUILD_FAKEROOT;
@@ -158,6 +160,8 @@ int main(int argc, char** argv)
                 package_dir = require_argument(i, argc, argv);
             } else if (option == "--work-dir") {
                 work_dir = require_argument(i, argc, argv);
+            } else if (option == "--tmp-dir") {
+                temporary_directory = require_argument(i, argc, argv);
             } else if (option == "--helper") {
                 helper = require_argument(i, argc, argv);
             } else if (option == "--scanner") {
@@ -223,6 +227,10 @@ int main(int argc, char** argv)
                         std::nullopt,
                     selected_environment(),
                     0022,
+                    temporary_directory
+                        ? std::optional<std::filesystem::path>(
+                            std::filesystem::absolute(*temporary_directory))
+                        : std::nullopt,
                 },
             },
             download,

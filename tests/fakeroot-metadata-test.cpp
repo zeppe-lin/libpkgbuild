@@ -181,6 +181,7 @@ int main(int argc, char** argv)
             "source=\n"
             "build() {\n"
             "  mkdir -p \"$PKG/usr/lib/meta\" \"$PKG/dev\" \"$PKG/run\"\n"
+            "  printf '%s\\n' \"$TMPDIR\" > \"$PKG/tmpdir\"\n"
             "  printf 'payload\\n' > \"$PKG/usr/lib/meta/payload\"\n"
             "  chmod 4750 \"$PKG/usr/lib/meta/payload\"\n"
             "  chown 123:456 \"$PKG/usr/lib/meta/payload\"\n"
@@ -200,6 +201,7 @@ int main(int argc, char** argv)
 
         pkgbuild::ExecutionPolicy execution;
         execution.environment = {{"PATH", "/usr/bin:/bin"}, {"LANG", "C"}};
+        execution.temporary_directory = root / "controlled-tmp";
         if (geteuid() == 0)
             execution.identity = nobody_identity();
 
@@ -238,6 +240,17 @@ int main(int argc, char** argv)
         require(receipt.work_directory.has_value(),
                 "retained workspace was not reported");
         const auto entries = read_archive(receipt.package);
+
+        require(entries.at("tmpdir").payload ==
+                    std::filesystem::absolute(root / "controlled-tmp").string() +
+                        "\n",
+                "recipe did not receive the controlled temporary directory");
+
+        struct stat temporary {};
+        require(stat((root / "controlled-tmp").c_str(), &temporary) == 0,
+                "controlled temporary directory was not created");
+        require((temporary.st_mode & 0777) == 0700,
+                "controlled temporary directory is not private");
 
         const auto& payload = entries.at("usr/lib/meta/payload");
         require(payload.type == AE_IFREG, "payload is not regular");

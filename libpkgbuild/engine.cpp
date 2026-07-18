@@ -222,6 +222,42 @@ void assign_workspace(const std::filesystem::path& root,
         change_owner(iterator->path(), *identity);
 }
 
+std::filesystem::path execution_temporary_directory(
+    const ExecutionPolicy& execution,
+    const BuildPaths& paths)
+{
+    if (execution.temporary_directory)
+        return normalized(*execution.temporary_directory);
+    return std::filesystem::absolute(paths.work_dir / "tmp").lexically_normal();
+}
+
+void prepare_temporary_directory(
+    const std::filesystem::path& directory,
+    const std::optional<BuildIdentity>& identity)
+{
+    if (directory.empty() || is_root_path(directory))
+        throw Error(ErrorCode::invalid_configuration,
+                    "temporary directory must not be the filesystem root");
+
+    const auto before = std::filesystem::symlink_status(directory);
+    if (std::filesystem::is_symlink(before))
+        throw Error(ErrorCode::invalid_configuration,
+                    "temporary directory must not be a symbolic link");
+
+    std::filesystem::create_directories(directory);
+    const auto after = std::filesystem::symlink_status(directory);
+    if (!std::filesystem::is_directory(after) ||
+        std::filesystem::is_symlink(after))
+        throw Error(ErrorCode::invalid_configuration,
+                    "temporary directory is not a real directory");
+
+    if (chmod(directory.c_str(), 0700) != 0)
+        throw Error(ErrorCode::filesystem_failed,
+                    "cannot protect temporary directory " +
+                        directory.string() + ": " + std::strerror(errno));
+    assign_workspace(directory, identity);
+}
+
 void prepare_metadata_directory(
     const std::filesystem::path& root,
     const std::optional<BuildIdentity>& identity)
@@ -256,6 +292,10 @@ PackageDefinition Engine::inspect(const DefinitionRequest& request,
                                   EventSink& events) const
 {
     validate_execution_policy(request.execution);
+    if (request.execution.temporary_directory)
+        prepare_temporary_directory(
+            execution_temporary_directory(request.execution, request.paths),
+            request.execution.identity);
     return services_.definitions.load(request, events);
 }
 
@@ -274,7 +314,9 @@ BuildReceipt Engine::build(const BuildRequest& request,
 
     std::filesystem::create_directories(paths.work_dir / "src");
     std::filesystem::create_directories(paths.work_dir / "pkg");
-    std::filesystem::create_directories(paths.work_dir / "tmp");
+    prepare_temporary_directory(
+        execution_temporary_directory(request.definition.execution, paths),
+        request.definition.execution.identity);
     assign_workspace(paths.work_dir, request.definition.execution.identity);
     prepare_metadata_directory(paths.work_dir,
                                request.definition.execution.identity);

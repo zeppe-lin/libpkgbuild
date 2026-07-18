@@ -253,6 +253,7 @@ ProcessResult PosixProcessExecutor::execute(const ProcessRequest& request) const
         request.identity,
         request.environment,
         request.file_creation_mask,
+        std::nullopt,
     });
 
     int output_pipe[2] = {-1, -1};
