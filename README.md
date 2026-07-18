@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.8.0
+LIBPKGBUILD 0.8.2
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -42,9 +42,12 @@ through the normalized API.  Legacy Pkgfile definitions currently map
 A successful check returns a move-only VerifiedSource that owns the
 file descriptor which was hashed.  Source copying and libarchive
 extraction consume a duplicate of that descriptor rather than reopening
-the pathname.  The same source is rehashed after consumption, so either
-pathname replacement or mutation during use cannot introduce unverified
-bytes into the recipe workspace.  Successful checks are retained in
+the pathname.  Libarchive extraction defers hard-link entries whose targets
+appear later in the source archive and resolves valid chains after ordinary
+payload extraction.  Unsafe and unresolved hard-link targets are rejected.
+The same source is rehashed after consumption, so either pathname replacement
+or mutation during use cannot introduce unverified bytes into the recipe
+workspace.  Successful checks are retained in
 `BuildReceipt::verifications`.
 
 MD5 remains suitable only for legacy accidental-corruption detection;
@@ -113,10 +116,12 @@ production pkgmk and the reference libpkgbuild frontend.  It accepts the
 bundled directory corpus or an ordered manifest of real package
 directories.  Corpus directory basenames are preserved and must match
 the Pkgfile package name.  Both builders share one canonical recipe,
-configuration path, source cache, package-output directory, and absolute
-private workspace path.  The candidate allocates that workspace through
-the production engine; the runner then moves its archive aside, resets
-the workspace, and lets pkgmk reuse the exact path.
+configuration path, source cache, package-output directory, absolute private
+workspace path, and private temporary directory.  The candidate allocates the
+workspace through the production engine; the runner then moves its archive
+aside, resets the workspace, and lets pkgmk reuse the exact path.  The common
+`TMPDIR` is a protected sibling rather than a child of `PKGMK_WORK_DIR`, because
+pkgmk removes its work directory during startup.
 
 A campaign may source the same baseline pkgmk configuration and may
 download missing sources explicitly.  Legacy build failures, candidate
@@ -186,9 +191,10 @@ Implemented
 * libpkgimage-based semantic archive comparison and pkgmk differential corpus runner.
 * Ordered real-package manifests with isolated shared source caches.
 * Per-case parity failure classification and retained diagnostic evidence.
-* Same-path sequential pkgmk/libpkgbuild parity execution.
+* Same-path sequential pkgmk/libpkgbuild parity execution with a shared private TMPDIR.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
+* Forward-hardlink-safe source extraction.
 * Virtual ownership, symlink, hardlink, FIFO, and device-node archive
   metadata.
 * Private per-build workspaces.

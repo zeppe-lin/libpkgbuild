@@ -55,9 +55,12 @@ The candidate runs first and allocates its normal private
 `.pkgbuild.XXXXXX` workspace.  Its archive is moved aside, the workspace
 is reset at that exact path, and pkgmk is then configured to reuse it.
 Both builders therefore use the same recipe directory, configuration
-path, source cache, package-output directory, `$SRC`, `$PKG`, and
-`TMPDIR`.  This prevents paths embedded by compilers, libtool, LTO, or
-generated files from creating false semantic mismatches.
+path, source cache, package-output directory, `$SRC`, `$PKG`, and `TMPDIR`.
+The common temporary directory is a private sibling of the reused workspace,
+not a child of it: pkgmk removes `PKGMK_WORK_DIR` before starting a build.
+This prevents both deleted-temporary-directory failures and paths embedded by
+compilers, libtool, LTO, or generated files from creating false semantic
+mismatches.
 
 The bundled synthetic corpus can be passed as a directory:
 
@@ -137,6 +140,7 @@ moved beneath the private run workspace:
     packages/
     sources/
     work/.pkgbuild.XXXXXX/
+    tmp/
     pkgmk.conf
     comparison.txt
 ```

@@ -45,8 +45,15 @@ if [ -f legacy-build-fail ]; then
     exit 8
 fi
 
+# Match pkgmk startup: its work directory is removed before the build.
+rm -rf "$PKGMK_WORK_DIR"
+mkdir -p "$PKGMK_WORK_DIR"
+if [ ! -d "$TMPDIR" ]; then
+    echo "fake-pkgmk: TMPDIR disappeared with PKGMK_WORK_DIR" >&2
+    exit 8
+fi
+
 tree=$PKGMK_WORK_DIR/fake-root
-rm -rf "$tree"
 mkdir -p "$tree/usr/share/parity"
 printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
 printf '%s\n' "$PKGMK_WORK_DIR" > "$tree/usr/share/parity/workspace"
