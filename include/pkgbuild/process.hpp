@@ -18,6 +18,7 @@ struct ProcessRequest {
     mode_t file_creation_mask{0022};
     bool capture_stdout{false};
     bool create_process_group{true};
+    bool merge_stderr{false};
 };
 
 struct ProcessResult {

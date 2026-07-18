@@ -185,6 +185,25 @@ int main()
         require(strip_newline(mask_result.stdout_data) == "0027",
                 "child used the wrong umask");
 
+        auto combined = request_for("/bin/sh", directory);
+        combined.arguments = {"-c", "printf 'stdout\n'; printf 'stderr\n' >&2"};
+        combined.merge_stderr = true;
+        if (geteuid() == 0)
+            combined.identity = nobody_identity();
+        const auto combined_result = executor.execute(combined);
+        require(combined_result.ok(), "combined output command failed");
+        require(combined_result.stdout_data == "stdout\nstderr\n",
+                "standard error was not merged into captured output");
+
+        auto invalid_merge = request_for("/usr/bin/true", directory);
+        invalid_merge.capture_stdout = false;
+        invalid_merge.merge_stderr = true;
+        if (geteuid() == 0)
+            invalid_merge.identity = nobody_identity();
+        require_error(pkgbuild::ErrorCode::invalid_configuration, [&] {
+            (void)executor.execute(invalid_merge);
+        });
+
         auto signal = request_for("/bin/sh", directory);
         signal.arguments = {"-c", "kill -TERM $$"};
         if (geteuid() == 0)

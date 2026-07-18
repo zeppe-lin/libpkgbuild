@@ -22,6 +22,7 @@ enum class ChildStage : int {
     group_identity,
     user_identity,
     standard_output,
+    standard_error,
     execute,
 };
 
@@ -39,6 +40,7 @@ const char* stage_name(ChildStage stage)
     case ChildStage::group_identity: return "setting group identity";
     case ChildStage::user_identity: return "setting user identity";
     case ChildStage::standard_output: return "redirecting standard output";
+    case ChildStage::standard_error: return "redirecting standard error";
     case ChildStage::execute: return "executing child process";
     }
     return "preparing child process";
@@ -243,6 +245,9 @@ ProcessResult PosixProcessExecutor::execute(const ProcessRequest& request) const
     if (request.program.empty() || !request.program.is_absolute())
         throw Error(ErrorCode::invalid_configuration,
                     "process program must be an absolute path");
+    if (request.merge_stderr && !request.capture_stdout)
+        throw Error(ErrorCode::invalid_configuration,
+                    "standard error can only be merged into captured output");
 
     validate_execution_policy(ExecutionPolicy{
         request.identity,
@@ -279,6 +284,9 @@ ProcessResult PosixProcessExecutor::execute(const ProcessRequest& request) const
             close_fd(output_pipe[0]);
             if (dup2(output_pipe[1], STDOUT_FILENO) < 0)
                 child_fail(failure_pipe[1], ChildStage::standard_output);
+            if (request.merge_stderr &&
+                dup2(output_pipe[1], STDERR_FILENO) < 0)
+                child_fail(failure_pipe[1], ChildStage::standard_error);
             close_fd(output_pipe[1]);
         }
 
