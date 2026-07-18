@@ -261,6 +261,46 @@ std::filesystem::path write_single_file_archive(
 }
 
 
+
+std::string ar_field(const std::string& value, std::size_t width)
+{
+    if (value.size() > width)
+        throw std::runtime_error("test ar field is too wide");
+    return value + std::string(width - value.size(), ' ');
+}
+
+void append_ar_member(std::string& archive,
+                      const std::string& name,
+                      const std::string& payload,
+                      std::uint64_t mtime,
+                      std::uint64_t uid,
+                      std::uint64_t gid,
+                      std::uint32_t mode)
+{
+    archive += ar_field(name, 16);
+    archive += ar_field(std::to_string(mtime), 12);
+    archive += ar_field(std::to_string(uid), 6);
+    archive += ar_field(std::to_string(gid), 6);
+    archive += ar_field(std::to_string(mode), 8);
+    archive += ar_field(std::to_string(payload.size()), 10);
+    archive += "`\n";
+    archive += payload;
+    if ((payload.size() & 1U) != 0)
+        archive += '\n';
+}
+
+std::string ar_payload(std::uint64_t mtime,
+                       std::uint64_t uid,
+                       const std::string& object_payload,
+                       const std::string& symbol_payload = "symbols")
+{
+    std::string archive = "!<arch>\n";
+    append_ar_member(archive, "/", symbol_payload, mtime, uid, uid, 0);
+    append_ar_member(archive, "object.o/", object_payload, mtime, uid, uid,
+                     100644);
+    return archive;
+}
+
 bool has_field(const pkgbuild::parity::ArchiveComparison& report,
                const std::string& field)
 {
@@ -308,6 +348,25 @@ int main()
         const auto invalid_man = write_single_file_archive(
             temporary.path(), "invalid-man.pkg.tar.gz",
             "usr/share/man/man1/tool.1.gz", "not gzip");
+        const auto ar_reference = write_single_file_archive(
+            temporary.path(), "ar-reference.pkg.tar.gz",
+            "usr/lib/libfixture.a", ar_payload(100, 0, "object"));
+        const auto ar_retimed = write_single_file_archive(
+            temporary.path(), "ar-retimed.pkg.tar.gz",
+            "usr/lib/libfixture.a", ar_payload(200, 0, "object"));
+        const auto ar_reowned = write_single_file_archive(
+            temporary.path(), "ar-reowned.pkg.tar.gz",
+            "usr/lib/libfixture.a", ar_payload(100, 99, "object"));
+        const auto ar_changed = write_single_file_archive(
+            temporary.path(), "ar-changed.pkg.tar.gz",
+            "usr/lib/libfixture.a", ar_payload(100, 0, "changed"));
+        const auto ar_symbols_changed = write_single_file_archive(
+            temporary.path(), "ar-symbols-changed.pkg.tar.gz",
+            "usr/lib/libfixture.a",
+            ar_payload(100, 0, "object", "changed-symbols"));
+        const auto thin_ar = write_single_file_archive(
+            temporary.path(), "thin-ar.pkg.tar.gz", "usr/lib/libfixture.a",
+            "!<thin>\n");
 
         require(pkgbuild::parity::compare_archives(reference, reversed).equivalent(),
                 "hardlink target orientation changed semantic comparison");
@@ -337,6 +396,33 @@ int main()
         require(!raw_gzip.equivalent() &&
                     has_field(raw_gzip, "payload-sha256"),
                 "non-man gzip payload was normalized");
+
+        require(pkgbuild::parity::compare_archives(ar_reference, ar_retimed)
+                    .equivalent(),
+                "ar member timestamps changed semantic comparison");
+        const auto reowned_ar = pkgbuild::parity::compare_archives(
+            ar_reference, ar_reowned);
+        require(!reowned_ar.equivalent() &&
+                    has_field(reowned_ar, "payload-sha256"),
+                "ar member ownership was normalized");
+        const auto changed_ar = pkgbuild::parity::compare_archives(
+            ar_reference, ar_changed);
+        require(!changed_ar.equivalent() &&
+                    has_field(changed_ar, "payload-sha256"),
+                "changed ar member payload was not reported");
+        const auto changed_symbols = pkgbuild::parity::compare_archives(
+            ar_reference, ar_symbols_changed);
+        require(!changed_symbols.equivalent() &&
+                    has_field(changed_symbols, "payload-sha256"),
+                "changed ar symbol table was not reported");
+
+        bool thin_rejected = false;
+        try {
+            (void)pkgbuild::parity::compare_archives(ar_reference, thin_ar);
+        } catch (const std::runtime_error&) {
+            thin_rejected = true;
+        }
+        require(thin_rejected, "thin ar archive was accepted");
 
         bool invalid_rejected = false;
         try {

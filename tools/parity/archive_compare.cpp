@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <filesystem>
 #include <iomanip>
 #include <limits>
@@ -83,6 +84,7 @@ public:
     {
         current_path_ = entry.path.string();
         normalize_gzip_ = is_compressed_manpage(current_path_);
+        normalize_ar_ = ends_with(current_path_, ".a");
         semantic_size_ = 0;
         gzip_finished_ = false;
 
@@ -97,12 +99,21 @@ public:
                 throw std::runtime_error("cannot initialize gzip payload decoder");
             inflater_initialized_ = true;
         }
+        if (normalize_ar_) {
+            ar_state_ = ArState::magic;
+            ar_buffer_size_ = 0;
+            ar_payload_remaining_ = 0;
+        }
     }
 
     void write(const pkgimage::package_entry&,
                const std::byte* data,
                std::size_t size) override
     {
+        if (normalize_ar_) {
+            consume_ar(data, size);
+            return;
+        }
         if (!normalize_gzip_) {
             update_digest(data, size);
             semantic_size_ += size;
@@ -157,6 +168,10 @@ public:
                                          current_path_ + "'");
             reset_inflater();
         }
+        if (normalize_ar_ &&
+            (ar_state_ != ArState::header || ar_buffer_size_ != 0))
+            throw std::runtime_error("truncated ar archive payload: '" +
+                                     current_path_ + "'");
 
         std::array<unsigned char, EVP_MAX_MD_SIZE> digest {};
         unsigned int size = 0;
@@ -168,6 +183,7 @@ public:
         context_.reset();
         current_path_.clear();
         normalize_gzip_ = false;
+        normalize_ar_ = false;
         semantic_size_ = 0;
         gzip_finished_ = false;
     }
@@ -178,6 +194,116 @@ public:
     }
 
 private:
+    enum class ArState {
+        magic,
+        header,
+        payload,
+        padding,
+    };
+
+    static std::uint64_t parse_ar_size(const std::array<std::byte, 60>& header,
+                                       const std::string& path)
+    {
+        const char* begin = reinterpret_cast<const char*>(header.data()) + 48;
+        const char* end = begin + 10;
+        while (begin != end && *begin == ' ')
+            ++begin;
+        while (end != begin && end[-1] == ' ')
+            --end;
+        if (begin == end)
+            throw std::runtime_error("empty ar member size in '" + path + "'");
+
+        std::uint64_t result = 0;
+        const auto parsed = std::from_chars(begin, end, result, 10);
+        if (parsed.ec != std::errc{} || parsed.ptr != end)
+            throw std::runtime_error("invalid ar member size in '" + path + "'");
+        return result;
+    }
+
+    void consume_ar(const std::byte* data, std::size_t size)
+    {
+        std::size_t offset = 0;
+        while (offset != size) {
+            if (ar_state_ == ArState::magic) {
+                const auto count = std::min(size - offset,
+                                            std::size_t{8} - ar_buffer_size_);
+                std::copy_n(data + offset, count,
+                            ar_buffer_.begin() + ar_buffer_size_);
+                ar_buffer_size_ += count;
+                offset += count;
+                if (ar_buffer_size_ != 8)
+                    continue;
+
+                static constexpr std::array<std::byte, 8> ordinary = {
+                    std::byte{'!'}, std::byte{'<'}, std::byte{'a'}, std::byte{'r'},
+                    std::byte{'c'}, std::byte{'h'}, std::byte{'>'}, std::byte{'\n'},
+                };
+                static constexpr std::array<std::byte, 8> thin = {
+                    std::byte{'!'}, std::byte{'<'}, std::byte{'t'}, std::byte{'h'},
+                    std::byte{'i'}, std::byte{'n'}, std::byte{'>'}, std::byte{'\n'},
+                };
+                if (std::equal(ar_buffer_.begin(), ar_buffer_.begin() + 8,
+                               thin.begin()))
+                    throw std::runtime_error("thin ar archive is unsupported: '" +
+                                             current_path_ + "'");
+                if (!std::equal(ar_buffer_.begin(), ar_buffer_.begin() + 8,
+                                ordinary.begin()))
+                    throw std::runtime_error("invalid ar archive magic: '" +
+                                             current_path_ + "'");
+                update_digest(ar_buffer_.data(), 8);
+                semantic_size_ += 8;
+                ar_buffer_size_ = 0;
+                ar_state_ = ArState::header;
+                continue;
+            }
+
+            if (ar_state_ == ArState::header) {
+                const auto count = std::min(size - offset,
+                                            std::size_t{60} - ar_buffer_size_);
+                std::copy_n(data + offset, count,
+                            ar_buffer_.begin() + ar_buffer_size_);
+                ar_buffer_size_ += count;
+                offset += count;
+                if (ar_buffer_size_ != 60)
+                    continue;
+                if (ar_buffer_[58] != std::byte{'`'} ||
+                    ar_buffer_[59] != std::byte{'\n'})
+                    throw std::runtime_error("invalid ar member header: '" +
+                                             current_path_ + "'");
+
+                ar_payload_remaining_ = parse_ar_size(ar_buffer_, current_path_);
+                std::fill(ar_buffer_.begin() + 16, ar_buffer_.begin() + 28,
+                          std::byte{' '});
+                update_digest(ar_buffer_.data(), 60);
+                semantic_size_ += 60;
+                ar_buffer_size_ = 0;
+                ar_member_odd_ = (ar_payload_remaining_ & 1U) != 0;
+                ar_state_ = ar_payload_remaining_ == 0
+                    ? (ar_member_odd_ ? ArState::padding : ArState::header)
+                    : ArState::payload;
+                continue;
+            }
+
+            if (ar_state_ == ArState::payload) {
+                const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(
+                    size - offset, ar_payload_remaining_));
+                update_digest(data + offset, count);
+                semantic_size_ += count;
+                offset += count;
+                ar_payload_remaining_ -= count;
+                if (ar_payload_remaining_ == 0)
+                    ar_state_ = ar_member_odd_ ? ArState::padding
+                                              : ArState::header;
+                continue;
+            }
+
+            update_digest(data + offset, 1);
+            ++semantic_size_;
+            ++offset;
+            ar_state_ = ArState::header;
+        }
+    }
+
     void update_digest(const std::byte* data, std::size_t size)
     {
         if (size != 0 && EVP_DigestUpdate(context_.get(), data, size) != 1)
@@ -196,7 +322,13 @@ private:
     z_stream stream_ {};
     bool inflater_initialized_{false};
     bool normalize_gzip_{false};
+    bool normalize_ar_{false};
     bool gzip_finished_{false};
+    ArState ar_state_{ArState::magic};
+    std::array<std::byte, 60> ar_buffer_{};
+    std::size_t ar_buffer_size_{0};
+    std::uint64_t ar_payload_remaining_{0};
+    bool ar_member_odd_{false};
     std::uint64_t semantic_size_{0};
     std::string current_path_;
     std::map<std::string, PayloadDigest> payloads_;
