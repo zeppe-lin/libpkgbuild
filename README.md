@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.8.2
+LIBPKGBUILD 0.8.3
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -67,6 +67,10 @@ The package-tree backend currently strips ELF executables, ELF shared
 objects, and ar archives.  A hardlink group is transformed once through
 a private copy, then every pathname is replaced and relinked to the
 transformed inode.  Stripping therefore cannot silently split hardlinks.
+For ordinary ar archives, member uid and gid header fields are restored from
+the pre-strip archive after validating that strip preserved the member
+sequence.  Trusted normalization therefore cannot leak the real build
+identity into static-library payloads when it runs outside fakeroot.
 Legacy `.nostrip` files are normalized as POSIX basic regular expressions;
 if any pathname in a hardlink group is excluded, the entire group is
 left unchanged.
@@ -185,6 +189,7 @@ Implemented
 * Strict legacy `.md5sum` normalization for Pkgfile definitions.
 * Structured package-tree transformation contracts and receipts.
 * Hardlink-safe ELF, shared-object, and ar archive stripping.
+* Virtual ar member ownership preserved across trusted stripping.
 * POSIX-BRE `.nostrip` normalization for Pkgfile definitions.
 * Deterministic, hardlink-safe manual-page compression and symlink rewrite.
 * Normalized footprint generation, legacy manifest parsing, comparison, and atomic replacement.
