@@ -2,6 +2,7 @@
 set -eu
 
 package_dir=
+work_base=
 config=
 download=no
 recipe=
@@ -11,11 +12,15 @@ while [ "$#" -gt 0 ]; do
         package_dir=$2
         shift 2
         ;;
+    --work-dir)
+        work_base=$2
+        shift 2
+        ;;
     --config)
         config=$2
         shift 2
         ;;
-    --source-dir|--work-dir|--helper|--scanner|--fakeroot|--strip)
+    --source-dir|--helper|--scanner|--fakeroot|--strip)
         shift 2
         ;;
     --download)
@@ -53,12 +58,16 @@ if [ -f "$recipe/require-download" ] && [ "$download" != yes ]; then
     echo "fake-pkgbuild: download mode was not forwarded" >&2
     exit 2
 fi
+
+workspace=$work_base/.pkgbuild.fixture
+mkdir -p "$workspace/tmp"
 if [ -f "$recipe/candidate-build-fail" ]; then
-    echo "candidate fixture failure"
+    echo "candidate fixture stdout"
+    echo "candidate fixture stderr" >&2
     exit 9
 fi
 
-tree=$package_dir/fake-root
+tree=$workspace/fake-root
 rm -rf "$tree"
 mkdir -p "$tree/usr/share/parity"
 if [ -f "$recipe/candidate-different" ]; then
@@ -66,6 +75,7 @@ if [ -f "$recipe/candidate-different" ]; then
 else
     printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
 fi
+printf '%s\n' "$workspace" > "$tree/usr/share/parity/workspace"
 package=$name#$version-$release.pkg.tar.gz
 if [ -f "$recipe/candidate-name-different" ]; then
     package=other#$version-$release.pkg.tar.gz

@@ -40,7 +40,8 @@ if [ -f require-download ] && [ "$download" != yes ]; then
     exit 2
 fi
 if [ -f legacy-build-fail ]; then
-    echo "legacy fixture failure"
+    echo "legacy fixture stdout"
+    echo "legacy fixture stderr" >&2
     exit 8
 fi
 
@@ -48,5 +49,6 @@ tree=$PKGMK_WORK_DIR/fake-root
 rm -rf "$tree"
 mkdir -p "$tree/usr/share/parity"
 printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
+printf '%s\n' "$PKGMK_WORK_DIR" > "$tree/usr/share/parity/workspace"
 tar -C "$tree" -czf \
     "$PKGMK_PACKAGE_DIR/$name#$version-$release.pkg.tar.gz" usr

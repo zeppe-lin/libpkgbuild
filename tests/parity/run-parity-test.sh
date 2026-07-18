@@ -142,8 +142,14 @@ grep -q '^status: CANDIDATE_BUILD_FAILED$' \
     "$failed_work/candidate-fail/comparison.txt"
 grep -q '^status: SEMANTIC_MISMATCH$' \
     "$failed_work/different/comparison.txt"
-test -f "$failed_work/legacy-fail/pkgmk/stdout.log"
-test -f "$failed_work/candidate-fail/libpkgbuild/stdout.log"
+test -f "$failed_work/legacy-fail/pkgmk/build.log"
+test -f "$failed_work/candidate-fail/libpkgbuild/build.log"
+grep -q 'legacy fixture stdout' "$failed_work/legacy-fail/pkgmk/build.log"
+grep -q 'legacy fixture stderr' "$failed_work/legacy-fail/pkgmk/build.log"
+grep -q 'candidate fixture stdout' \
+    "$failed_work/candidate-fail/libpkgbuild/build.log"
+grep -q 'candidate fixture stderr' \
+    "$failed_work/candidate-fail/libpkgbuild/build.log"
 
 # Duplicate package basenames are ambiguous in reports and retained trees.
 mkdir -p "$work/duplicate/a" "$work/duplicate/b"
