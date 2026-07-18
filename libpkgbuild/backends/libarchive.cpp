@@ -73,6 +73,20 @@ using EntryPtr = std::unique_ptr<archive_entry, EntryDeleter>;
                                 archive* handle,
                                 const std::string& operation);
 
+const char* archive_pathname(archive_entry* entry)
+{
+    if (const char* value = archive_entry_pathname_utf8(entry))
+        return value;
+    return archive_entry_pathname(entry);
+}
+
+const char* archive_hardlink(archive_entry* entry)
+{
+    if (const char* value = archive_entry_hardlink_utf8(entry))
+        return value;
+    return archive_entry_hardlink(entry);
+}
+
 struct DeferredHardlink {
     EntryPtr entry;
     std::filesystem::path path;
@@ -430,13 +444,30 @@ void LibarchiveBackend::extract(const ExtractRequest& request,
 
     std::vector<DeferredHardlink> deferred_hardlinks;
     archive_entry* entry = nullptr;
-    while (archive_read_next_header(input.get(), &entry) == ARCHIVE_OK) {
-        const std::filesystem::path original = archive_entry_pathname(entry);
+    for (;;) {
+        const int status = archive_read_next_header(input.get(), &entry);
+        if (status == ARCHIVE_EOF)
+            break;
+        if (status != ARCHIVE_OK && status != ARCHIVE_WARN)
+            archive_error(ErrorCode::extraction_failed, input.get(),
+                          "reading source archive");
+        if (status == ARCHIVE_WARN) {
+            const char* message = archive_error_string(input.get());
+            emit(events, EventKind::warning,
+                 std::string("Source archive warning: ") +
+                     (message ? message : "unknown warning"));
+        }
+
+        const char* pathname = archive_pathname(entry);
+        if (pathname == nullptr)
+            throw Error(ErrorCode::extraction_failed,
+                        "source archive entry has no pathname");
+        const std::filesystem::path original = pathname;
         if (!safe_archive_path(original))
             throw Error(ErrorCode::extraction_failed,
                         "unsafe path in source archive: " + original.string());
 
-        if (const char* hardlink_name = archive_entry_hardlink(entry)) {
+        if (const char* hardlink_name = archive_hardlink(entry)) {
             const std::filesystem::path target = hardlink_name;
             if (!safe_archive_path(target))
                 throw Error(ErrorCode::extraction_failed,

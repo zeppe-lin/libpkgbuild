@@ -6,6 +6,7 @@
 #include <archive.h>
 #include <archive_entry.h>
 
+#include <clocale>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
@@ -119,6 +120,61 @@ void make_hardlink_archive(const std::filesystem::path& path,
     require_archive(archive_write_free(output), output, "freeing archive writer");
 }
 
+void write_utf8_hardlink(archive* output,
+                         const std::string& path,
+                         const std::string& target)
+{
+    archive_entry* entry = archive_entry_new();
+    if (!entry)
+        fail("cannot allocate UTF-8 hard-link entry");
+    archive_entry_set_pathname_utf8(entry, path.c_str());
+    archive_entry_set_filetype(entry, AE_IFREG);
+    archive_entry_set_perm(entry, 0644);
+    archive_entry_set_hardlink_utf8(entry, target.c_str());
+    archive_entry_set_size(entry, 0);
+    require_archive(archive_write_header(output, entry), output,
+                    "writing UTF-8 hard-link header");
+    archive_entry_free(entry);
+}
+
+void write_utf8_file(archive* output,
+                     const std::string& path,
+                     const std::string& payload)
+{
+    archive_entry* entry = archive_entry_new();
+    if (!entry)
+        fail("cannot allocate UTF-8 file entry");
+    archive_entry_set_pathname_utf8(entry, path.c_str());
+    archive_entry_set_filetype(entry, AE_IFREG);
+    archive_entry_set_perm(entry, 0644);
+    archive_entry_set_size(entry, static_cast<la_int64_t>(payload.size()));
+    require_archive(archive_write_header(output, entry), output,
+                    "writing UTF-8 file header");
+    require(archive_write_data(output, payload.data(), payload.size()) ==
+                static_cast<la_ssize_t>(payload.size()),
+            "cannot write UTF-8 file payload");
+    archive_entry_free(entry);
+}
+
+void make_utf8_archive(const std::filesystem::path& path)
+{
+    archive* output = archive_write_new();
+    if (!output)
+        fail("cannot allocate UTF-8 archive writer");
+    require_archive(archive_write_set_format_pax_restricted(output), output,
+                    "selecting UTF-8 archive format");
+    require_archive(archive_write_open_filename(output, path.c_str()), output,
+                    "opening UTF-8 archive output");
+
+    write_utf8_hardlink(output, "fixture/línk", "fixture/dátá");
+    write_utf8_file(output, "fixture/dátá", "UTF-8 hard link\n");
+
+    require_archive(archive_write_close(output), output,
+                    "closing UTF-8 archive");
+    require_archive(archive_write_free(output), output,
+                    "freeing UTF-8 archive writer");
+}
+
 pkgbuild::VerifiedSource open_source(const std::filesystem::path& path)
 {
     const int descriptor = open(path.c_str(), O_RDONLY | O_CLOEXEC);
@@ -187,6 +243,32 @@ int main()
             require(error.code() == pkgbuild::ErrorCode::extraction_failed,
                     "unexpected error for unresolved hard-link target");
         }
+
+        require(std::setlocale(LC_ALL, "C.UTF-8") != nullptr,
+                "C.UTF-8 locale is unavailable for archive fixture creation");
+        const auto utf8_archive = root / "utf8-hardlink.tar";
+        make_utf8_archive(utf8_archive);
+        require(std::setlocale(LC_ALL, "C") != nullptr,
+                "cannot select C locale for extraction regression");
+
+        auto utf8_source = open_source(utf8_archive);
+        const auto utf8_destination = root / "utf8-out";
+        backend.extract(pkgbuild::ExtractRequest{utf8_source, utf8_destination},
+                        events);
+        const auto utf8_target = utf8_destination / "fixture/dátá";
+        const auto utf8_link = utf8_destination / "fixture/línk";
+        require(read_file(utf8_target) == "UTF-8 hard link\n",
+                "UTF-8 target payload was not extracted");
+        require(read_file(utf8_link) == "UTF-8 hard link\n",
+                "UTF-8 hard-link payload differs");
+        struct stat utf8_target_status {};
+        struct stat utf8_link_status {};
+        require(stat(utf8_target.c_str(), &utf8_target_status) == 0 &&
+                    stat(utf8_link.c_str(), &utf8_link_status) == 0,
+                "cannot stat UTF-8 hard-link pair");
+        require(utf8_target_status.st_dev == utf8_link_status.st_dev &&
+                    utf8_target_status.st_ino == utf8_link_status.st_ino,
+                "UTF-8 forward hard link was copied instead of linked");
 
         std::filesystem::remove_all(root);
         std::cout << "source extraction: PASS\n";
