@@ -194,6 +194,7 @@ int main(int argc, char** argv)
             false,
             {},
             {},
+            std::nullopt,
         }, events);
 
         require(receipt.transformations.size() == 1,

@@ -64,6 +64,7 @@ public:
            << "      --source-dir DIR     source cache directory\n"
            << "      --package-dir DIR    package output directory\n"
            << "      --work-dir DIR       private workspace base\n"
+           << "      --workspace-dir DIR  exact private workspace path\n"
            << "      --tmp-dir DIR        controlled recipe temporary directory\n"
            << "      --helper FILE        pkgfile/0 worker path\n"
            << "      --scanner FILE       staged metadata scanner path\n"
@@ -140,6 +141,7 @@ int main(int argc, char** argv)
         std::optional<std::filesystem::path> source_dir;
         std::optional<std::filesystem::path> package_dir;
         std::optional<std::filesystem::path> work_dir;
+        std::optional<std::filesystem::path> workspace_directory;
         std::optional<std::filesystem::path> temporary_directory;
         std::filesystem::path helper = PKGBUILD_PKGFILE_HELPER;
         std::filesystem::path scanner = PKGBUILD_STAGE_SCANNER;
@@ -164,6 +166,8 @@ int main(int argc, char** argv)
                 package_dir = require_argument(i, argc, argv);
             } else if (option == "--work-dir") {
                 work_dir = require_argument(i, argc, argv);
+            } else if (option == "--workspace-dir") {
+                workspace_directory = require_argument(i, argc, argv);
             } else if (option == "--tmp-dir") {
                 temporary_directory = require_argument(i, argc, argv);
             } else if (option == "--helper") {
@@ -241,6 +245,10 @@ int main(int argc, char** argv)
             keep_work,
             {},
             footprint,
+            workspace_directory
+                ? std::optional<std::filesystem::path>(
+                    std::filesystem::absolute(*workspace_directory))
+                : std::nullopt,
         };
 
         const auto receipt = engine.build(request, events);

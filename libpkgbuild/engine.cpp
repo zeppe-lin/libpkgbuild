@@ -70,8 +70,11 @@ std::filesystem::path prepare_work_base(const BuildPaths& paths)
 
 class PrivateWorkspace final {
 public:
-    PrivateWorkspace(const BuildPaths& paths, bool keep)
-        : path_(create(prepare_work_base(paths))), keep_(keep) {}
+    PrivateWorkspace(
+        const BuildPaths& paths,
+        bool keep,
+        const std::optional<std::filesystem::path>& requested)
+        : path_(create(prepare_work_base(paths), requested)), keep_(keep) {}
 
     ~PrivateWorkspace()
     {
@@ -87,7 +90,8 @@ public:
     }
 
 private:
-    static std::filesystem::path create(const std::filesystem::path& base)
+    static std::filesystem::path create_random(
+        const std::filesystem::path& base)
     {
         std::string pattern = (base / ".pkgbuild.XXXXXX").string();
         std::vector<char> storage(pattern.begin(), pattern.end());
@@ -98,8 +102,51 @@ private:
             throw Error(ErrorCode::filesystem_failed,
                         "cannot create private build workspace in " +
                             base.string() + ": " + std::strerror(errno));
+        return created;
+    }
 
-        const std::filesystem::path result(created);
+    static std::filesystem::path create_exact(
+        const std::filesystem::path& base,
+        const std::filesystem::path& requested)
+    {
+        if (requested.empty() || !requested.is_absolute())
+            throw Error(ErrorCode::invalid_configuration,
+                        "exact workspace path must be absolute");
+
+        const auto result = requested.lexically_normal();
+        const auto filename = result.filename().string();
+        if (filename.size() <= std::string(".pkgbuild.").size() ||
+            filename.rfind(".pkgbuild.", 0) != 0)
+            throw Error(ErrorCode::invalid_configuration,
+                        "exact workspace must be a .pkgbuild.* child");
+        if (normalized(result.parent_path()) != base)
+            throw Error(ErrorCode::invalid_configuration,
+                        "exact workspace must be a direct child of the work base");
+
+        std::error_code status_error;
+        const auto status = std::filesystem::symlink_status(result, status_error);
+        if (!status_error && status.type() != std::filesystem::file_type::not_found)
+            throw Error(ErrorCode::invalid_configuration,
+                        "exact workspace path already exists: " + result.string());
+        if (status_error &&
+            status_error != std::errc::no_such_file_or_directory)
+            throw Error(ErrorCode::filesystem_failed,
+                        "cannot inspect exact workspace path: " +
+                            status_error.message());
+
+        if (mkdir(result.c_str(), 0700) != 0)
+            throw Error(ErrorCode::filesystem_failed,
+                        "cannot create exact private build workspace: " +
+                            std::string(std::strerror(errno)));
+        return result;
+    }
+
+    static std::filesystem::path create(
+        const std::filesystem::path& base,
+        const std::optional<std::filesystem::path>& requested)
+    {
+        const auto result = requested ? create_exact(base, *requested)
+                                      : create_random(base);
         if (chmod(result.c_str(), 0700) != 0) {
             const int saved = errno;
             std::error_code ignored;
@@ -308,7 +355,8 @@ BuildReceipt Engine::build(const BuildRequest& request,
     std::filesystem::create_directories(configured_paths.source_dir);
     std::filesystem::create_directories(configured_paths.package_dir);
 
-    PrivateWorkspace workspace(configured_paths, request.keep_work);
+    PrivateWorkspace workspace(configured_paths, request.keep_work,
+                               request.workspace_directory);
     BuildPaths paths = configured_paths;
     paths.work_dir = workspace.path();
 

@@ -178,6 +178,7 @@ pkgbuild::BuildRequest request_for(const std::filesystem::path& root,
         false,
         {},
         {action, manifest},
+        std::nullopt,
     };
 }
 

@@ -207,6 +207,7 @@ pkgbuild::BuildRequest make_request(const std::filesystem::path& root,
         keep,
         {},
         {},
+        std::nullopt,
     };
 }
 
@@ -258,6 +259,52 @@ int main()
         require(std::filesystem::is_directory(*kept.work_directory),
                 "retained workspace was removed");
         std::filesystem::remove_all(*kept.work_directory);
+
+        const auto exact_path = root / "work-base/.pkgbuild.parity";
+        auto exact = make_request(root, true);
+        exact.workspace_directory = exact_path;
+        const auto exact_receipt = engine.build(exact, events);
+        require(exact_receipt.work_directory == exact_path,
+                "exact workspace path was not reported");
+        require(recipes.workspaces.back() == exact_path,
+                "recipe did not receive the exact workspace path");
+        require(std::filesystem::is_directory(exact_path),
+                "exact retained workspace was removed");
+        std::filesystem::remove_all(exact_path);
+
+        auto discarded_exact = make_request(root, false);
+        discarded_exact.workspace_directory = exact_path;
+        const auto discarded_receipt = engine.build(discarded_exact, events);
+        require(!discarded_receipt.work_directory,
+                "discarded exact workspace was reported");
+        require(!std::filesystem::exists(exact_path),
+                "discarded exact workspace survived cleanup");
+
+        std::filesystem::create_directory(exact_path);
+        auto occupied_exact = make_request(root, false);
+        occupied_exact.workspace_directory = exact_path;
+        require_error(pkgbuild::ErrorCode::invalid_configuration, [&] {
+            (void)engine.build(occupied_exact, events);
+        });
+        std::filesystem::remove_all(exact_path);
+
+        auto escaped_exact = make_request(root, false);
+        escaped_exact.workspace_directory = root / ".pkgbuild.escaped";
+        require_error(pkgbuild::ErrorCode::invalid_configuration, [&] {
+            (void)engine.build(escaped_exact, events);
+        });
+
+        auto malformed_exact = make_request(root, false);
+        malformed_exact.workspace_directory = root / "work-base/fixed";
+        require_error(pkgbuild::ErrorCode::invalid_configuration, [&] {
+            (void)engine.build(malformed_exact, events);
+        });
+
+        auto relative_exact = make_request(root, false);
+        relative_exact.workspace_directory = ".pkgbuild.relative";
+        require_error(pkgbuild::ErrorCode::invalid_configuration, [&] {
+            (void)engine.build(relative_exact, events);
+        });
 
         auto root_base = make_request(root, false);
         root_base.definition.paths.work_dir = "/";

@@ -134,6 +134,7 @@ struct BuildRequest {
     bool keep_work{false};
     TransformationPolicy transformations;
     FootprintPolicy footprint;
+    std::optional<std::filesystem::path> workspace_directory;
 };
 
 struct DownloadRequest {

@@ -234,6 +234,7 @@ int main(int argc, char** argv)
                 true,
                 {},
                 {},
+                std::nullopt,
             },
             events);
 
