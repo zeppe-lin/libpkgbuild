@@ -8,6 +8,7 @@ fi
 
 package_dir=
 work_base=
+workspace_dir=
 tmp_dir=
 config=
 download=no
@@ -20,6 +21,10 @@ while [ "$#" -gt 0 ]; do
         ;;
     --work-dir)
         work_base=$2
+        shift 2
+        ;;
+    --workspace-dir)
+        workspace_dir=$2
         shift 2
         ;;
     --tmp-dir)
@@ -69,7 +74,11 @@ if [ -f "$recipe/require-download" ] && [ "$download" != yes ]; then
     exit 2
 fi
 
-workspace=$work_base/.pkgbuild.fixture
+if [ -n "$workspace_dir" ]; then
+    workspace=$workspace_dir
+else
+    workspace=$work_base/.pkgbuild.fixture
+fi
 mkdir -p "$workspace" "$tmp_dir"
 if [ -f "$recipe/candidate-build-fail" ]; then
     echo "candidate fixture stdout"
@@ -80,7 +89,16 @@ fi
 tree=$workspace/fake-root
 rm -rf "$tree"
 mkdir -p "$tree/usr/share/parity"
-if [ -f "$recipe/candidate-different" ]; then
+if [ -f "$recipe/candidate-unstable" ]; then
+    count_file=$recipe/.candidate-run-count
+    count=0
+    if [ -f "$count_file" ]; then
+        count=$(cat "$count_file")
+    fi
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$count_file"
+    printf 'candidate run %s\n' "$count" > "$tree/usr/share/parity/value"
+elif [ -f "$recipe/candidate-different" ]; then
     printf '%s\n' 'different payload' > "$tree/usr/share/parity/value"
 else
     printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"

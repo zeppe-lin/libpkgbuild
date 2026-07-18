@@ -60,7 +60,18 @@ fi
 
 tree=$PKGMK_WORK_DIR/fake-root
 mkdir -p "$tree/usr/share/parity"
-printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
+if [ -f legacy-unstable ]; then
+    count_file=$PWD/.legacy-run-count
+    count=0
+    if [ -f "$count_file" ]; then
+        count=$(cat "$count_file")
+    fi
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$count_file"
+    printf 'legacy run %s\n' "$count" > "$tree/usr/share/parity/value"
+else
+    printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
+fi
 printf '%s\n' "$PKGMK_WORK_DIR" > "$tree/usr/share/parity/workspace"
 printf '%s\n' "$TMPDIR" > "$tree/usr/share/parity/tmpdir"
 tar -C "$tree" -czf \
