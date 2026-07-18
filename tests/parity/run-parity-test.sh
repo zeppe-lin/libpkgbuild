@@ -89,30 +89,28 @@ printf '%s\n' "$identity_output" | grep -q 'package-filename'
 # continuation after failures, and retained evidence.
 manifest_root=$work/manifest
 mkdir -p "$manifest_root/cases"
-for name in pass sibling legacy-fail candidate-fail different \
-    candidate-unstable legacy-unstable; do
+for name in pass sibling legacy-fail candidate-fail artifact-fail \
+    different candidate-unstable legacy-unstable; do
     make_case "$manifest_root/cases/$name"
 done
 : > "$manifest_root/cases/pass/require-baseline"
 : > "$manifest_root/cases/pass/require-download"
 mkdir -p "$manifest_root/cases/shared"
-printf '%s
-' 'shared source payload' > \
+printf '%s\n' 'shared source payload' > \
     "$manifest_root/cases/shared/payload.txt"
-printf '%s
-' \
+printf '%s\n' \
     'name=sibling' \
     'version=1.0' \
     'release=1' \
     'source="../shared/payload.txt"' \
     'build() { :; }' > "$manifest_root/cases/sibling/Pkgfile"
-printf '%s  %s
-' \
+printf '%s  %s\n' \
     "$(md5sum "$manifest_root/cases/shared/payload.txt" | cut -d' ' -f1)" \
     'payload.txt' > "$manifest_root/cases/sibling/.md5sum"
 : > "$manifest_root/cases/sibling/require-sibling-source"
 : > "$manifest_root/cases/legacy-fail/legacy-build-fail"
 : > "$manifest_root/cases/candidate-fail/candidate-build-fail"
+: > "$manifest_root/cases/artifact-fail/candidate-artifact-fail"
 : > "$manifest_root/cases/different/candidate-different"
 : > "$manifest_root/cases/candidate-unstable/candidate-unstable"
 : > "$manifest_root/cases/legacy-unstable/legacy-unstable"
@@ -122,6 +120,7 @@ printf '%s\n' \
     'cases/sibling' \
     'cases/legacy-fail' \
     'cases/candidate-fail' \
+    'cases/artifact-fail' \
     'cases/different' \
     'cases/candidate-unstable' \
     'cases/legacy-unstable' > "$manifest_root/corpus.list"
@@ -149,18 +148,19 @@ printf '%s\n' "$manifest_output" | grep -q '^PASS pass$'
 printf '%s\n' "$manifest_output" | grep -q '^PASS sibling$'
 printf '%s\n' "$manifest_output" | grep -q '^LEGACY_BUILD_FAILED legacy-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^CANDIDATE_BUILD_FAILED candidate-fail$'
+printf '%s\n' "$manifest_output" | grep -q '^ARTIFACT_INSPECTION_FAILED artifact-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^SEMANTIC_MISMATCH different$'
 printf '%s\n' "$manifest_output" | grep -q \
     '^NONDETERMINISTIC_OUTPUT candidate-unstable$'
 printf '%s\n' "$manifest_output" | grep -q \
     '^NONDETERMINISTIC_OUTPUT legacy-unstable$'
 printf '%s\n' "$manifest_output" | grep -q \
-    '^SUMMARY pass=2 legacy-build-failed=1 candidate-build-failed=1 nondeterministic-output=2 semantic-mismatch=1$'
+    '^SUMMARY pass=2 legacy-build-failed=1 candidate-build-failed=1 artifact-inspection-failed=1 nondeterministic-output=2 semantic-mismatch=1$'
 failed_work=$(printf '%s\n' "$manifest_output" | sed -n 's/^FAILED_WORK //p')
 test -n "$failed_work"
 test ! -e "$failed_work/pass"
 test ! -e "$failed_work/sibling"
-for name in legacy-fail candidate-fail different \
+for name in legacy-fail candidate-fail artifact-fail different \
     candidate-unstable legacy-unstable; do
     test -f "$failed_work/$name/comparison.txt"
 done
@@ -168,6 +168,8 @@ test -d "$failed_work/legacy-fail/pkgmk/run-1"
 test -d "$failed_work/legacy-fail/libpkgbuild/run-1"
 test -d "$failed_work/candidate-fail/libpkgbuild/run-1"
 test ! -e "$failed_work/candidate-fail/pkgmk"
+test -d "$failed_work/artifact-fail/libpkgbuild/run-1"
+test ! -e "$failed_work/artifact-fail/pkgmk"
 for name in different candidate-unstable legacy-unstable; do
     test -d "$failed_work/$name/pkgmk/run-1"
     test -d "$failed_work/$name/libpkgbuild/run-1"
@@ -176,6 +178,12 @@ grep -q '^status: LEGACY_BUILD_FAILED$' \
     "$failed_work/legacy-fail/comparison.txt"
 grep -q '^status: CANDIDATE_BUILD_FAILED$' \
     "$failed_work/candidate-fail/comparison.txt"
+grep -q '^status: ARTIFACT_INSPECTION_FAILED$' \
+    "$failed_work/artifact-fail/comparison.txt"
+grep -q '^detail: engine: libpkgbuild$' \
+    "$failed_work/artifact-fail/comparison.txt"
+grep -q '^detail: artifact-error: thin ar archive is unsupported:' \
+    "$failed_work/artifact-fail/comparison.txt"
 grep -q '^status: SEMANTIC_MISMATCH$' \
     "$failed_work/different/comparison.txt"
 for name in candidate-unstable legacy-unstable; do

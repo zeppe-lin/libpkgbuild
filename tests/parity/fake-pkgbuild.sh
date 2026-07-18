@@ -110,6 +110,10 @@ else
 fi
 printf '%s\n' "$workspace" > "$tree/usr/share/parity/workspace"
 printf '%s\n' "$tmp_dir" > "$tree/usr/share/parity/tmpdir"
+if [ -f "$recipe/candidate-artifact-fail" ]; then
+    mkdir -p "$tree/usr/lib"
+    printf '!<thin>\n' > "$tree/usr/lib/libfixture.a"
+fi
 package=$name#$version-$release.pkg.tar.gz
 if [ -f "$recipe/candidate-name-different" ]; then
     package=other#$version-$release.pkg.tar.gz

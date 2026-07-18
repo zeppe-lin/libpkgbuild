@@ -460,6 +460,7 @@ enum class CaseStatus {
     pass,
     legacy_build_failed,
     candidate_build_failed,
+    artifact_inspection_failed,
     nondeterministic_output,
     semantic_mismatch,
 };
@@ -470,6 +471,8 @@ const char* status_name(CaseStatus status) noexcept
     case CaseStatus::pass: return "PASS";
     case CaseStatus::legacy_build_failed: return "LEGACY_BUILD_FAILED";
     case CaseStatus::candidate_build_failed: return "CANDIDATE_BUILD_FAILED";
+    case CaseStatus::artifact_inspection_failed:
+        return "ARTIFACT_INSPECTION_FAILED";
     case CaseStatus::nondeterministic_output:
         return "NONDETERMINISTIC_OUTPUT";
     case CaseStatus::semantic_mismatch: return "SEMANTIC_MISMATCH";
@@ -751,14 +754,22 @@ std::vector<std::filesystem::path> corpus_cases(
     return result;
 }
 
+enum class AttemptFailure {
+    none,
+    build,
+    artifact,
+};
+
 struct BuildAttempt {
     std::optional<std::filesystem::path> package;
     std::optional<std::filesystem::path> workspace;
     std::vector<std::string> errors;
+    AttemptFailure failure{AttemptFailure::none};
 
     bool ok() const noexcept
     {
-        return package.has_value() && errors.empty();
+        return package.has_value() && errors.empty() &&
+               failure == AttemptFailure::none;
     }
 };
 
@@ -859,20 +870,23 @@ BuildAttempt run_candidate_attempt(
         evidence / "build.log");
     if (run.error)
         return BuildAttempt{std::nullopt, std::nullopt,
-                            {"executor-error: " + *run.error}};
+                            {"executor-error: " + *run.error},
+                            AttemptFailure::build};
     if (!run.result->ok())
         return BuildAttempt{std::nullopt, std::nullopt,
-                            {process_status(*run.result)}};
+                            {process_status(*run.result)},
+                            AttemptFailure::build};
 
     try {
         const auto package = move_package(packages, evidence / "packages");
         validate_archive(package);
         const auto workspace = find_private_workspace(work_base);
         write_text(evidence / "workspace.txt", workspace.string() + "\n");
-        return BuildAttempt{package, workspace, {}};
+        return BuildAttempt{package, workspace, {}, AttemptFailure::none};
     } catch (const std::exception& error) {
         return BuildAttempt{std::nullopt, std::nullopt,
-                            {std::string("artifact-error: ") + error.what()}};
+                            {std::string("artifact-error: ") + error.what()},
+                            AttemptFailure::artifact};
     }
 }
 
@@ -896,7 +910,8 @@ BuildAttempt run_legacy_attempt(
                            private_workspace);
     } catch (const std::exception& error) {
         return BuildAttempt{std::nullopt, std::nullopt,
-                            {std::string("workspace-error: ") + error.what()}};
+                            {std::string("workspace-error: ") + error.what()},
+                            AttemptFailure::build};
     }
 
     std::filesystem::create_directories(evidence / "packages");
@@ -924,21 +939,45 @@ BuildAttempt run_legacy_attempt(
         evidence / "build.log");
     if (run.error)
         return BuildAttempt{std::nullopt, std::nullopt,
-                            {"executor-error: " + *run.error}};
+                            {"executor-error: " + *run.error},
+                            AttemptFailure::build};
     if (!run.result->ok())
         return BuildAttempt{std::nullopt, std::nullopt,
-                            {process_status(*run.result)}};
+                            {process_status(*run.result)},
+                            AttemptFailure::build};
 
     try {
         const auto package = move_package(packages, evidence / "packages");
         validate_archive(package);
         write_text(evidence / "workspace.txt",
                    private_workspace.string() + "\n");
-        return BuildAttempt{package, private_workspace, {}};
+        return BuildAttempt{package, private_workspace, {},
+                            AttemptFailure::none};
     } catch (const std::exception& error) {
         return BuildAttempt{std::nullopt, std::nullopt,
-                            {std::string("artifact-error: ") + error.what()}};
+                            {std::string("artifact-error: ") + error.what()},
+                            AttemptFailure::artifact};
     }
+}
+
+CaseResult failed_attempt(
+    const BuildAttempt& attempt,
+    CaseStatus build_status,
+    const std::string& engine,
+    const std::string& name,
+    const std::filesystem::path& source,
+    const std::filesystem::path& root,
+    const std::string& detail_prefix = {})
+{
+    auto details = detail_prefix.empty()
+        ? attempt.errors
+        : prefix_details(detail_prefix, attempt.errors);
+    if (attempt.failure == AttemptFailure::artifact) {
+        details.insert(details.begin(), "engine: " + engine);
+        return failed_case(CaseStatus::artifact_inspection_failed, name,
+                           source, root, std::move(details));
+    }
+    return failed_case(build_status, name, source, root, std::move(details));
 }
 
 CaseResult run_case(const Options& options,
@@ -974,18 +1013,16 @@ CaseResult run_case(const Options& options,
     const auto candidate_one = run_candidate_attempt(
         options, executor, identity, environment, recipe, sources, packages,
         work_base, temporary, config, candidate / "run-1");
-    if (!candidate_one.ok()) {
-        return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
-                           root, candidate_one.errors);
-    }
+    if (!candidate_one.ok())
+        return failed_attempt(candidate_one, CaseStatus::candidate_build_failed,
+                              "libpkgbuild", name, corpus_case, root);
 
     const auto legacy_one = run_legacy_attempt(
         options, executor, identity, environment, recipe, sources, packages,
         temporary, config, *candidate_one.workspace, legacy / "run-1");
-    if (!legacy_one.ok()) {
-        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
-                           root, legacy_one.errors);
-    }
+    if (!legacy_one.ok())
+        return failed_attempt(legacy_one, CaseStatus::legacy_build_failed,
+                              "pkgmk", name, corpus_case, root);
 
     auto cross_details =
         compare_packages(*legacy_one.package, *candidate_one.package);
@@ -1009,11 +1046,10 @@ CaseResult run_case(const Options& options,
         options, executor, identity, environment, recipe, sources, packages,
         work_base, temporary, config, candidate / "run-2",
         candidate_one.workspace);
-    if (!candidate_two.ok()) {
-        auto details = prefix_details("repeat-run: ", candidate_two.errors);
-        return failed_case(CaseStatus::candidate_build_failed, name, corpus_case,
-                           root, std::move(details));
-    }
+    if (!candidate_two.ok())
+        return failed_attempt(candidate_two, CaseStatus::candidate_build_failed,
+                              "libpkgbuild", name, corpus_case, root,
+                              "repeat-run: ");
 
     const auto candidate_repeat =
         compare_packages(*candidate_one.package, *candidate_two.package);
@@ -1030,11 +1066,10 @@ CaseResult run_case(const Options& options,
     const auto legacy_two = run_legacy_attempt(
         options, executor, identity, environment, recipe, sources, packages,
         temporary, config, *candidate_two.workspace, legacy / "run-2");
-    if (!legacy_two.ok()) {
-        auto details = prefix_details("repeat-run: ", legacy_two.errors);
-        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
-                           root, std::move(details));
-    }
+    if (!legacy_two.ok())
+        return failed_attempt(legacy_two, CaseStatus::legacy_build_failed,
+                              "pkgmk", name, corpus_case, root,
+                              "repeat-run: ");
 
     const auto legacy_repeat =
         compare_packages(*legacy_one.package, *legacy_two.package);
@@ -1094,6 +1129,8 @@ int main(int argc, char** argv)
                   << counts[CaseStatus::legacy_build_failed]
                   << " candidate-build-failed="
                   << counts[CaseStatus::candidate_build_failed]
+                  << " artifact-inspection-failed="
+                  << counts[CaseStatus::artifact_inspection_failed]
                   << " nondeterministic-output="
                   << counts[CaseStatus::nondeterministic_output]
                   << " semantic-mismatch="
@@ -1104,6 +1141,7 @@ int main(int argc, char** argv)
         const std::size_t failures =
             counts[CaseStatus::legacy_build_failed] +
             counts[CaseStatus::candidate_build_failed] +
+            counts[CaseStatus::artifact_inspection_failed] +
             counts[CaseStatus::nondeterministic_output] +
             counts[CaseStatus::semantic_mismatch];
         if (failures != 0)
