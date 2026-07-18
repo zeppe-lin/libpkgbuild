@@ -4,6 +4,7 @@ set -eu
 runner=$1
 fakeroot=$2
 root=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+helper=$root/../../libpkgbuild/pkgbuild-pkgfile.in
 work=$(mktemp -d "${TMPDIR:-/tmp}/pkgbuild-parity-runner.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 chmod 0755 "$work"
@@ -37,7 +38,7 @@ fi
     --pkgmk "$root/fake-pkgmk.sh" \
     --pkgbuild "$root/fake-pkgbuild.sh" \
     --fakeroot "$fakeroot" \
-    --helper /bin/true \
+    --helper "$helper" \
     --scanner /bin/true \
     --strip /bin/true \
     --work-dir "$work/run-equal" \
@@ -51,7 +52,7 @@ output=$("$runner" \
     --pkgmk "$root/fake-pkgmk.sh" \
     --pkgbuild "$root/fake-pkgbuild.sh" \
     --fakeroot "$fakeroot" \
-    --helper /bin/true \
+    --helper "$helper" \
     --scanner /bin/true \
     --strip /bin/true \
     --work-dir "$work/run-different" \
@@ -71,7 +72,7 @@ identity_output=$("$runner" \
     --pkgmk "$root/fake-pkgmk.sh" \
     --pkgbuild "$root/fake-pkgbuild.sh" \
     --fakeroot "$fakeroot" \
-    --helper /bin/true \
+    --helper "$helper" \
     --scanner /bin/true \
     --strip /bin/true \
     --work-dir "$work/run-identity" \
@@ -88,12 +89,28 @@ printf '%s\n' "$identity_output" | grep -q 'package-filename'
 # continuation after failures, and retained evidence.
 manifest_root=$work/manifest
 mkdir -p "$manifest_root/cases"
-for name in pass legacy-fail candidate-fail different \
+for name in pass sibling legacy-fail candidate-fail different \
     candidate-unstable legacy-unstable; do
     make_case "$manifest_root/cases/$name"
 done
 : > "$manifest_root/cases/pass/require-baseline"
 : > "$manifest_root/cases/pass/require-download"
+mkdir -p "$manifest_root/cases/shared"
+printf '%s
+' 'shared source payload' > \
+    "$manifest_root/cases/shared/payload.txt"
+printf '%s
+' \
+    'name=sibling' \
+    'version=1.0' \
+    'release=1' \
+    'source="../shared/payload.txt"' \
+    'build() { :; }' > "$manifest_root/cases/sibling/Pkgfile"
+printf '%s  %s
+' \
+    "$(md5sum "$manifest_root/cases/shared/payload.txt" | cut -d' ' -f1)" \
+    'payload.txt' > "$manifest_root/cases/sibling/.md5sum"
+: > "$manifest_root/cases/sibling/require-sibling-source"
 : > "$manifest_root/cases/legacy-fail/legacy-build-fail"
 : > "$manifest_root/cases/candidate-fail/candidate-build-fail"
 : > "$manifest_root/cases/different/candidate-different"
@@ -102,6 +119,7 @@ done
 printf '%s\n' \
     '# ordered real-package manifest fixture' \
     'cases/pass' \
+    'cases/sibling' \
     'cases/legacy-fail' \
     'cases/candidate-fail' \
     'cases/different' \
@@ -115,7 +133,7 @@ manifest_output=$("$runner" \
     --pkgmk "$root/fake-pkgmk.sh" \
     --pkgbuild "$root/fake-pkgbuild.sh" \
     --fakeroot "$fakeroot" \
-    --helper /bin/true \
+    --helper "$helper" \
     --scanner /bin/true \
     --strip /bin/true \
     --config "$manifest_root/pkgmk.conf" \
@@ -128,6 +146,7 @@ set -e
 
 test "$manifest_status" -eq 1
 printf '%s\n' "$manifest_output" | grep -q '^PASS pass$'
+printf '%s\n' "$manifest_output" | grep -q '^PASS sibling$'
 printf '%s\n' "$manifest_output" | grep -q '^LEGACY_BUILD_FAILED legacy-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^CANDIDATE_BUILD_FAILED candidate-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^SEMANTIC_MISMATCH different$'
@@ -136,10 +155,11 @@ printf '%s\n' "$manifest_output" | grep -q \
 printf '%s\n' "$manifest_output" | grep -q \
     '^NONDETERMINISTIC_OUTPUT legacy-unstable$'
 printf '%s\n' "$manifest_output" | grep -q \
-    '^SUMMARY pass=1 legacy-build-failed=1 candidate-build-failed=1 nondeterministic-output=2 semantic-mismatch=1$'
+    '^SUMMARY pass=2 legacy-build-failed=1 candidate-build-failed=1 nondeterministic-output=2 semantic-mismatch=1$'
 failed_work=$(printf '%s\n' "$manifest_output" | sed -n 's/^FAILED_WORK //p')
 test -n "$failed_work"
 test ! -e "$failed_work/pass"
+test ! -e "$failed_work/sibling"
 for name in legacy-fail candidate-fail different \
     candidate-unstable legacy-unstable; do
     test -f "$failed_work/$name/comparison.txt"
@@ -227,7 +247,7 @@ duplicate_output=$("$runner" \
     --pkgmk "$root/fake-pkgmk.sh" \
     --pkgbuild "$root/fake-pkgbuild.sh" \
     --fakeroot "$fakeroot" \
-    --helper /bin/true \
+    --helper "$helper" \
     --scanner /bin/true \
     --strip /bin/true \
     --manifest "$work/duplicate/corpus.list" \
@@ -245,7 +265,7 @@ missing_config_output=$("$runner" \
     --pkgmk "$root/fake-pkgmk.sh" \
     --pkgbuild "$root/fake-pkgbuild.sh" \
     --fakeroot "$fakeroot" \
-    --helper /bin/true \
+    --helper "$helper" \
     --scanner /bin/true \
     --strip /bin/true \
     --config "$work/does-not-exist.conf" \

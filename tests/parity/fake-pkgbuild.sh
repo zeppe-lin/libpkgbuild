@@ -73,6 +73,11 @@ if [ -f "$recipe/require-download" ] && [ "$download" != yes ]; then
     echo "fake-pkgbuild: download mode was not forwarded" >&2
     exit 2
 fi
+if [ -f "$recipe/require-sibling-source" ] &&
+   [ ! -f "$recipe/../shared/payload.txt" ]; then
+    echo "fake-pkgbuild: sibling local source was not staged" >&2
+    exit 2
+fi
 
 if [ -n "$workspace_dir" ]; then
     workspace=$workspace_dir

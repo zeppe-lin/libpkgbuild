@@ -18,6 +18,7 @@
 #include <optional>
 #include <pwd.h>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
@@ -281,6 +282,120 @@ void copy_recipe(const std::filesystem::path& source,
         std::filesystem::copy_options::recursive |
             std::filesystem::copy_options::copy_symlinks |
             std::filesystem::copy_options::overwrite_existing);
+}
+
+std::vector<std::string> split_nul_fields(const std::string& data)
+{
+    std::vector<std::string> result;
+    std::size_t begin = 0;
+    while (begin != data.size()) {
+        const auto end = data.find('\0', begin);
+        if (end == std::string::npos)
+            throw std::runtime_error(
+                "Pkgfile helper returned an unterminated definition field");
+        result.emplace_back(data.substr(begin, end - begin));
+        begin = end + 1;
+    }
+    return result;
+}
+
+std::vector<pkgbuild::Source> inspect_sources(
+    const Options& options,
+    const pkgbuild::ProcessExecutor& executor,
+    const std::optional<pkgbuild::BuildIdentity>& identity,
+    const std::map<std::string, std::string>& environment,
+    const std::filesystem::path& recipe,
+    const std::filesystem::path& config,
+    const std::filesystem::path& sources,
+    const std::filesystem::path& packages,
+    const std::filesystem::path& work)
+{
+    const auto result = executor.execute(pkgbuild::ProcessRequest{
+        options.helper,
+        {
+            "inspect",
+            std::filesystem::absolute(recipe).string(),
+            std::filesystem::absolute(config).string(),
+            std::filesystem::absolute(sources).string(),
+            std::filesystem::absolute(packages).string(),
+            std::filesystem::absolute(work).string(),
+            "gnutar",
+            "gz",
+        },
+        recipe,
+        environment,
+        identity,
+        0022,
+        true,
+        false,
+    });
+    if (!result.ok())
+        throw std::runtime_error(
+            "Pkgfile source inspection failed with status " +
+            std::to_string(result.exit_status));
+
+    const auto fields = split_nul_fields(result.stdout_data);
+    if (fields.size() != 8 || fields[0] != "pkgfile/0")
+        throw std::runtime_error(
+            "Pkgfile helper returned an unsupported definition record");
+
+    std::vector<pkgbuild::Source> result_sources;
+    std::istringstream declarations(fields[4]);
+    std::string declaration;
+    while (declarations >> declaration)
+        result_sources.push_back(pkgbuild::parse_source(declaration));
+    return result_sources;
+}
+
+bool path_within(const std::filesystem::path& root,
+                 const std::filesystem::path& path)
+{
+    const auto relative = path.lexically_relative(root);
+    if (relative.empty() || relative == ".")
+        return path == root;
+    return *relative.begin() != "..";
+}
+
+void copy_local_sources(
+    const std::filesystem::path& source_recipe,
+    const std::filesystem::path& staged_recipe,
+    const std::vector<pkgbuild::Source>& sources)
+{
+    const auto source_collection = std::filesystem::weakly_canonical(
+        std::filesystem::absolute(source_recipe.parent_path()));
+    const auto staged_collection = staged_recipe.parent_path();
+
+    for (const auto& source : sources) {
+        if (source.uri)
+            continue;
+        if (source.local_name.empty() || source.local_name.is_absolute())
+            throw std::runtime_error(
+                "local source escapes corpus collection: " +
+                source.declaration);
+
+        const auto declared =
+            (source_recipe / source.local_name).lexically_normal();
+        const auto relative = declared.lexically_relative(source_collection);
+        if (relative.empty() || *relative.begin() == "..")
+            throw std::runtime_error(
+                "local source escapes corpus collection: " +
+                source.declaration);
+
+        const auto resolved = std::filesystem::weakly_canonical(declared);
+        if (!path_within(source_collection, resolved))
+            throw std::runtime_error(
+                "local source resolves outside corpus collection: " +
+                source.declaration);
+        if (!std::filesystem::is_regular_file(resolved))
+            throw std::runtime_error(
+                "local source is not a regular file: " + source.declaration);
+
+        const auto destination = staged_collection / relative;
+        std::filesystem::create_directories(destination.parent_path());
+        std::filesystem::copy_file(
+            resolved, destination,
+            std::filesystem::copy_options::overwrite_existing);
+    }
 }
 
 void change_owner(const std::filesystem::path& path,
@@ -844,12 +959,16 @@ CaseResult run_case(const Options& options,
     const auto temporary = root / "tmp";
     const auto config = root / "pkgmk.conf";
 
-    copy_recipe(corpus_case, recipe);
     std::filesystem::create_directories(packages);
     std::filesystem::create_directories(sources);
     std::filesystem::create_directories(work_base);
     std::filesystem::create_directories(temporary);
     write_build_config(config, options.config_file, sources, packages, work_base);
+    const auto declared_sources = inspect_sources(
+        options, executor, identity, environment, corpus_case, config,
+        sources, packages, work_base);
+    copy_recipe(corpus_case, recipe);
+    copy_local_sources(corpus_case, recipe, declared_sources);
     assign_tree(root, identity);
 
     const auto candidate_one = run_candidate_attempt(

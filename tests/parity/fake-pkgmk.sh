@@ -44,6 +44,11 @@ if [ -f require-download ] && [ "$download" != yes ]; then
     echo "fake-pkgmk: download mode was not forwarded" >&2
     exit 2
 fi
+if [ -f require-sibling-source ] &&
+   [ ! -f ../shared/payload.txt ]; then
+    echo "fake-pkgmk: sibling local source was not staged" >&2
+    exit 2
+fi
 if [ -f legacy-build-fail ]; then
     echo "legacy fixture stdout"
     echo "legacy fixture stderr" >&2
