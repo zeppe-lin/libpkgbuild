@@ -908,6 +908,27 @@ CaseResult run_case(const Options& options,
                            corpus_case, root, std::move(details));
     }
 
+    const auto legacy_two = run_legacy_attempt(
+        options, executor, identity, environment, recipe, sources, packages,
+        temporary, config, *candidate_two.workspace, legacy / "run-2");
+    if (!legacy_two.ok()) {
+        auto details = prefix_details("repeat-run: ", legacy_two.errors);
+        return failed_case(CaseStatus::legacy_build_failed, name, corpus_case,
+                           root, std::move(details));
+    }
+
+    const auto legacy_repeat =
+        compare_packages(*legacy_one.package, *legacy_two.package);
+    write_comparison_evidence(legacy / "repeat-comparison.txt",
+                              legacy_repeat);
+    if (!legacy_repeat.empty()) {
+        std::vector<std::string> details{"engine: pkgmk"};
+        auto repeated = prefix_details("repeat-mismatch: ", legacy_repeat);
+        details.insert(details.end(), repeated.begin(), repeated.end());
+        return failed_case(CaseStatus::nondeterministic_output, name,
+                           corpus_case, root, std::move(details));
+    }
+
     return failed_case(CaseStatus::semantic_mismatch, name, corpus_case,
                        root, std::move(cross_details));
 }
