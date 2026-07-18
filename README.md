@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.8.4
+LIBPKGBUILD 0.8.5
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -129,21 +129,28 @@ reference libpkgbuild frontend.  It accepts the bundled directory corpus or an o
 directories.  Corpus directory basenames are preserved and must match
 the Pkgfile package name.  Both builders share one canonical recipe,
 configuration path, source cache, package-output directory, absolute
-private workspace path, private temporary directory, and explicit `C.UTF-8`
-locale.  The candidate allocates the workspace through the production
-engine; the runner then moves its archive aside, resets the workspace,
-and lets pkgmk reuse the exact path.  The common `TMPDIR` is a protected
-sibling rather than a child of `PKGMK_WORK_DIR`, because pkgmk removes its
-work directory during startup.
+private workspace path, private temporary directory, and explicit
+`C.UTF-8` locale.  The candidate allocates the workspace through the
+production engine; the runner then moves its archive aside, resets the
+workspace, and lets pkgmk reuse the exact path.  The common `TMPDIR` is a
+protected sibling rather than a child of `PKGMK_WORK_DIR`, because pkgmk
+removes its work directory during startup.
+
+An initial mismatch triggers stability checks at that same absolute
+workspace path.  The candidate is rebuilt first.  If its two semantic
+packages differ, the case is classified as `NONDETERMINISTIC_OUTPUT` for
+libpkgbuild and no second pkgmk build is required.  Otherwise pkgmk is
+rebuilt at the same path and receives the same classification if its two
+packages differ.  A mismatch is reported as `SEMANTIC_MISMATCH` only when
+both engines are internally stable.
 
 A campaign may source the same baseline pkgmk configuration and may
 download missing sources explicitly.  Legacy build failures, candidate
-build failures, and semantic mismatches are classified separately and
-do not stop later cases.  Failed package trees, combined stdout/stderr
-build logs, candidate and legacy archives, the final legacy workspace,
-and structured comparison reports are retained beneath the private run
-directory; successful trees are discarded unless `--keep-work` was
-requested.
+build failures, nondeterministic outputs, and semantic mismatches are
+classified separately and do not stop later cases.  Per-run packages,
+combined stdout/stderr logs, exact workspace records, and cross/repeat
+comparison reports are retained beneath the private run directory;
+successful trees are discarded unless `--keep-work` was requested.
 
 The runner executes pkgmk under fakeroot and applies the same explicit
 non-root build identity used by the candidate build.  It never mutates
@@ -173,11 +180,17 @@ ordinary user.
 Workspace model
 ---------------
 
-`BuildPaths::work_dir` is a workspace base.  Each build creates a
-private mode-0700 `.pkgbuild.XXXXXX` child and removes only that child.
+`BuildPaths::work_dir` is a workspace base.  Each ordinary build creates
+a private mode-0700 `.pkgbuild.XXXXXX` child and removes only that child.
+A trusted orchestrator may set `BuildRequest::workspace_directory` to an
+absent absolute `.pkgbuild.*` direct child of the same base when an exact
+path must be replayed.  Existing paths, relative paths, other names, and
+paths outside the base are rejected.  The reference frontend exposes
+this contract as `--workspace-dir DIR`.
+
 The base may not be `/`, a symbolic link, or the same directory as the
-recipe, source cache, or package output directory.  A retained
-workspace is returned as `BuildReceipt::work_directory`.
+recipe, source cache, or package output directory.  A retained workspace
+is returned as `BuildReceipt::work_directory`.
 
 After a root orchestrator receives the staged manifest and trusted
 normalization completes, the workspace root is returned to root ownership
@@ -207,6 +220,8 @@ Implemented
 * Ordered real-package manifests with isolated shared source caches.
 * Per-case parity failure classification and retained diagnostic evidence.
 * Same-path sequential pkgmk/libpkgbuild parity execution with a shared private TMPDIR.
+* On-demand same-path repeat builds and nondeterministic-output classification.
+* Controlled exact private workspace replay for trusted orchestrators.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.
 * Forward-hardlink-safe, locale-independent UTF-8 source extraction.

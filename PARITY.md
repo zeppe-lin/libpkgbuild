@@ -63,15 +63,16 @@ The candidate runs first and allocates its normal private
 `.pkgbuild.XXXXXX` workspace.  Its archive is moved aside, the workspace
 is reset at that exact path, and pkgmk is then configured to reuse it.
 Both builders therefore use the same recipe directory, configuration
-path, source cache, package-output directory, `$SRC`, `$PKG`, and `TMPDIR`.
-The runner also sets `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` for both engines,
+path, source cache, package-output directory, `$SRC`, `$PKG`, and
+`TMPDIR`.
+
+The runner sets `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` for both engines,
 matching the production pkgmk/bsdtar build contract instead of inheriting
 an arbitrary caller locale.  The common temporary directory is a private
 sibling of the reused workspace, not a child of it: pkgmk removes
 `PKGMK_WORK_DIR` before starting a build.  This prevents both deleted
 temporary-directory failures and paths embedded by compilers, libtool,
-LTO, or generated files from creating false semantic
-mismatches.
+LTO, or generated files from creating false semantic mismatches.
 
 The bundled synthetic corpus can be passed as a directory:
 
@@ -126,6 +127,7 @@ Every package produces exactly one result line:
 PASS package
 LEGACY_BUILD_FAILED package
 CANDIDATE_BUILD_FAILED package
+NONDETERMINISTIC_OUTPUT package
 SEMANTIC_MISMATCH package
 ```
 
@@ -135,6 +137,15 @@ case passes, 1 when any package fails or differs, and 2 for invalid
 arguments or a harness-level operation that prevents the campaign from
 continuing.
 
+A cross-engine mismatch is not immediately accepted as semantic.  The
+runner resets the original private workspace and rebuilds the candidate
+at that exact path.  If candidate run 1 and run 2 differ semantically,
+the result is `NONDETERMINISTIC_OUTPUT` with `engine: libpkgbuild`.
+Otherwise the runner resets the same path again and repeats pkgmk.  A
+legacy repeat difference receives `engine: pkgmk`.  Only two stable
+engines can produce `SEMANTIC_MISMATCH`.  Repeat builds are therefore
+paid only by cases that already differ.
+
 Both builders run with work retention enabled.  On failure, the case is
 moved beneath the private run workspace:
 
@@ -142,27 +153,32 @@ moved beneath the private run workspace:
 <work-base>/.pkgbuild-parity.XXXXXX/failed/<package>/
     recipe/<package>/
     pkgmk/
-        packages/
-        build.log
+        run-1/{packages/,build.log,workspace.txt}
+        run-2/{packages/,build.log,workspace.txt}  # when reached
+        repeat-comparison.txt                     # when reached
     libpkgbuild/
-        packages/
-        build.log
-        workspace.txt
+        run-1/{packages/,build.log,workspace.txt}
+        run-2/{packages/,build.log,workspace.txt}  # on mismatch
+        repeat-comparison.txt                      # on mismatch
     packages/
     sources/
     work/.pkgbuild.XXXXXX/
     tmp/
     pkgmk.conf
+    cross-comparison.txt
     comparison.txt
 ```
 
-A successful candidate workspace is deliberately reset before the legacy
-build so both builders can occupy the same absolute path.  The candidate
-archive, complete combined build log, and selected workspace pathname remain
-retained.  The final `work/.pkgbuild.XXXXXX` tree belongs to the legacy run.
+A successful candidate workspace is deliberately reset before each later
+builder so all reached runs occupy the same absolute path.  Each run keeps
+its archive, complete combined build log, and selected workspace pathname.
+The final `work/.pkgbuild.XXXXXX` tree belongs to the last reached run.
 
-`comparison.txt` records the source package directory, result class, and
-structured diagnostics.  `FAILED_WORK` prints the retained failure root.
+`cross-comparison.txt` records the initial engine difference.  Per-engine
+`repeat-comparison.txt` files record either `equivalent` or the repeat
+differences.  `comparison.txt` records the source package directory,
+result class, and final structured diagnostics.  `FAILED_WORK` prints the
+retained failure root.
 Successful case trees are removed unless `--keep-work` is supplied; with
 that option, `WORK` also prints the complete run workspace.
 
