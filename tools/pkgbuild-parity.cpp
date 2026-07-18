@@ -437,7 +437,7 @@ void write_case_report(const CaseResult& result)
         throw std::runtime_error("cannot write retained parity report");
     output << "case: " << result.name << '\n'
            << "status: " << status_name(result.status) << '\n'
-           << "source: " << result.source << '\n';
+           << "source: " << result.source.string() << '\n';
     for (const auto& detail : result.details)
         output << "detail: " << detail << '\n';
     if (!output)
@@ -466,7 +466,7 @@ void print_case_result(const CaseResult& result)
     for (const auto& detail : result.details)
         std::cout << "  " << detail << '\n';
     if (!result.passed())
-        std::cout << "  retained: " << result.root << '\n';
+        std::cout << "  retained: " << result.root.string() << '\n';
 }
 
 std::filesystem::path find_package(const std::filesystem::path& directory)
@@ -769,13 +769,14 @@ int main(int argc, char** argv)
                   << counts[CaseStatus::semantic_mismatch] << '\n';
 
         if (options.keep_work)
-            std::cout << "WORK " << workspace.path() << '\n';
+            std::cout << "WORK " << workspace.path().string() << '\n';
         const std::size_t failures =
             counts[CaseStatus::legacy_build_failed] +
             counts[CaseStatus::candidate_build_failed] +
             counts[CaseStatus::semantic_mismatch];
         if (failures != 0)
-            std::cout << "FAILED_WORK " << workspace.path() / "failed" << '\n';
+            std::cout << "FAILED_WORK "
+                      << (workspace.path() / "failed").string() << '\n';
         return failures == 0 ? 0 : 1;
     } catch (const pkgbuild::Error& error) {
         std::cerr << "pkgbuild-parity: " << error.what() << '\n';

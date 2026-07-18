@@ -2,6 +2,8 @@
 set -eu
 
 package_dir=
+config=
+download=no
 recipe=
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -9,10 +11,18 @@ while [ "$#" -gt 0 ]; do
         package_dir=$2
         shift 2
         ;;
-    --source-dir|--work-dir|--config|--helper|--scanner|--fakeroot|--strip)
+    --config)
+        config=$2
         shift 2
         ;;
-    --download|--keep-work)
+    --source-dir|--work-dir|--helper|--scanner|--fakeroot|--strip)
+        shift 2
+        ;;
+    --download)
+        download=yes
+        shift
+        ;;
+    --keep-work)
         shift
         ;;
     *)
@@ -22,9 +32,30 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if [ "$(basename "$recipe")" != fake ]; then
+package_name=$(basename "$recipe")
+# Fixture Pkgfiles contain data assignments and an inert build function.
+# shellcheck disable=SC1090
+. "$recipe/Pkgfile"
+if [ "$package_name" != "$name" ]; then
     echo "fake-pkgbuild: recipe basename is not package name" >&2
     exit 2
+fi
+if [ -n "$config" ]; then
+    # shellcheck disable=SC1090
+    . "$config"
+fi
+if [ -f "$recipe/require-baseline" ] && \
+   [ "${PARITY_BASELINE_MARKER:-}" != yes ]; then
+    echo "fake-pkgbuild: baseline configuration was not sourced" >&2
+    exit 2
+fi
+if [ -f "$recipe/require-download" ] && [ "$download" != yes ]; then
+    echo "fake-pkgbuild: download mode was not forwarded" >&2
+    exit 2
+fi
+if [ -f "$recipe/candidate-build-fail" ]; then
+    echo "candidate fixture failure"
+    exit 9
 fi
 
 tree=$package_dir/fake-root
@@ -35,8 +66,8 @@ if [ -f "$recipe/candidate-different" ]; then
 else
     printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
 fi
-package=fake#1.0-1.pkg.tar.gz
+package=$name#$version-$release.pkg.tar.gz
 if [ -f "$recipe/candidate-name-different" ]; then
-    package=other#1.0-1.pkg.tar.gz
+    package=other#$version-$release.pkg.tar.gz
 fi
 tar --owner=0 --group=0 -C "$tree" -czf "$package_dir/$package" usr
