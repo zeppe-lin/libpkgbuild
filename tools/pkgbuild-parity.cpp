@@ -514,19 +514,24 @@ std::filesystem::path find_private_workspace(
     return workspaces.front();
 }
 
-void reset_private_workspace(
-    const std::filesystem::path& workspace,
-    const std::optional<pkgbuild::BuildIdentity>& identity)
+void reset_private_workspace(const std::filesystem::path& workspace)
 {
     if (workspace.filename().string().rfind(".pkgbuild.", 0) != 0)
         throw std::runtime_error("refusing to reset non-private workspace: " +
                                  workspace.string());
     std::filesystem::remove_all(workspace);
-    std::filesystem::create_directories(workspace / "tmp");
-    if (chmod(workspace.c_str(), 0700) != 0)
-        throw std::runtime_error("cannot protect reused private workspace: " +
+}
+
+void reset_temporary_directory(
+    const std::filesystem::path& directory,
+    const std::optional<pkgbuild::BuildIdentity>& identity)
+{
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directory(directory);
+    if (chmod(directory.c_str(), 0700) != 0)
+        throw std::runtime_error("cannot protect parity temporary directory: " +
                                  std::string(std::strerror(errno)));
-    assign_tree(workspace, identity);
+    assign_tree(directory, identity);
 }
 
 std::filesystem::path validate_case(const std::filesystem::path& value,
@@ -643,6 +648,7 @@ CaseResult run_case(const Options& options,
     const auto packages = root / "packages";
     const auto sources = root / "sources";
     const auto work_base = root / "work";
+    const auto temporary = root / "tmp";
     const auto config = root / "pkgmk.conf";
 
     copy_recipe(corpus_case, recipe);
@@ -651,6 +657,7 @@ CaseResult run_case(const Options& options,
     std::filesystem::create_directories(packages);
     std::filesystem::create_directories(sources);
     std::filesystem::create_directories(work_base);
+    std::filesystem::create_directories(temporary);
     write_build_config(config, options.config_file, sources, packages, work_base);
     assign_tree(root, identity);
 
@@ -658,6 +665,7 @@ CaseResult run_case(const Options& options,
         "--source-dir", sources.string(),
         "--package-dir", packages.string(),
         "--work-dir", work_base.string(),
+        "--tmp-dir", temporary.string(),
         "--config", config.string(),
         "--helper", options.helper.string(),
         "--scanner", options.scanner.string(),
@@ -705,7 +713,8 @@ CaseResult run_case(const Options& options,
     }
 
     try {
-        reset_private_workspace(private_workspace, identity);
+        reset_private_workspace(private_workspace);
+        reset_temporary_directory(temporary, identity);
         write_build_config(config, options.config_file, sources, packages,
                            private_workspace);
     } catch (const std::exception& error) {
@@ -714,7 +723,7 @@ CaseResult run_case(const Options& options,
     }
 
     auto legacy_environment = environment;
-    legacy_environment["TMPDIR"] = (private_workspace / "tmp").string();
+    legacy_environment["TMPDIR"] = temporary.string();
     std::vector<std::string> legacy_arguments = {
         "--", options.pkgmk.string(), "-cf", config.string(),
         "-f", "-if", "-kw",
@@ -785,7 +794,7 @@ int main(int argc, char** argv)
         if (options.build_user)
             identity = build_identity(*options.build_user);
         pkgbuild::validate_execution_policy(
-            pkgbuild::ExecutionPolicy{identity, {}, 0022});
+            pkgbuild::ExecutionPolicy{identity, {}, 0022, std::nullopt});
 
         const auto environment = selected_environment(identity);
         Workspace workspace(options.work_base, options.keep_work);

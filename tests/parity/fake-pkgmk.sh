@@ -50,5 +50,6 @@ rm -rf "$tree"
 mkdir -p "$tree/usr/share/parity"
 printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
 printf '%s\n' "$PKGMK_WORK_DIR" > "$tree/usr/share/parity/workspace"
+printf '%s\n' "$TMPDIR" > "$tree/usr/share/parity/tmpdir"
 tar -C "$tree" -czf \
     "$PKGMK_PACKAGE_DIR/$name#$version-$release.pkg.tar.gz" usr

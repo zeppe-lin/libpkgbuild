@@ -3,6 +3,7 @@ set -eu
 
 package_dir=
 work_base=
+tmp_dir=
 config=
 download=no
 recipe=
@@ -14,6 +15,10 @@ while [ "$#" -gt 0 ]; do
         ;;
     --work-dir)
         work_base=$2
+        shift 2
+        ;;
+    --tmp-dir)
+        tmp_dir=$2
         shift 2
         ;;
     --config)
@@ -60,7 +65,7 @@ if [ -f "$recipe/require-download" ] && [ "$download" != yes ]; then
 fi
 
 workspace=$work_base/.pkgbuild.fixture
-mkdir -p "$workspace/tmp"
+mkdir -p "$workspace" "$tmp_dir"
 if [ -f "$recipe/candidate-build-fail" ]; then
     echo "candidate fixture stdout"
     echo "candidate fixture stderr" >&2
@@ -76,6 +81,7 @@ else
     printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
 fi
 printf '%s\n' "$workspace" > "$tree/usr/share/parity/workspace"
+printf '%s\n' "$tmp_dir" > "$tree/usr/share/parity/tmpdir"
 package=$name#$version-$release.pkg.tar.gz
 if [ -f "$recipe/candidate-name-different" ]; then
     package=other#$version-$release.pkg.tar.gz
