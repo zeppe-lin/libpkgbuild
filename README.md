@@ -84,9 +84,11 @@ Manual pages beneath `*/man/man*/*` are compressed with deterministic
 gzip headers.  Hardlinked manual pages are compressed once and recreated
 as a hardlink group with `.gz` names.  Relative and absolute manual-page
 symlinks are renamed and retargeted only when their referenced payload
-was actually compressed.  A hardlink group spanning manual-page and
-non-manual locations is preserved unchanged rather than having its
-identity fractured.
+was actually compressed.  When a recipe already installed the equivalent
+compressed symlink, the redundant uncompressed alias is removed and both
+representations are coalesced; incompatible collisions still fail.  A
+hardlink group spanning manual-page and non-manual locations is preserved
+unchanged rather than having its identity fractured.
 
 Footprint model
 ---------------
@@ -120,15 +122,19 @@ SHA-256 payload hashes while ignoring archive order, timestamps, and the
 choice of hard-link target member.  Gzip-compressed manual pages are
 compared through their decompressed content, so legacy gzip filename and
 timestamp headers do not obscure equivalent installation payloads.
-Ordinary static ar archives are compared after removing only member
-timestamp fields;
-member order, names, modes, uid/gid fields, long-name and symbol tables,
-and member payloads remain significant.  `pkgbuild-parity` builds
+Ordinary static ar archives are recognized by `!<arch>\n` payload magic
+and compared after removing only member timestamp fields; a linker script
+or other ordinary file named `.a` remains byte-sensitive.  Member order,
+names, modes, uid/gid fields, long-name and symbol tables, and member
+payloads remain significant.  `pkgbuild-parity` builds
 Pkgfile cases in isolated trees with both production pkgmk and the
-reference libpkgbuild frontend.  It accepts the bundled directory corpus or an ordered manifest of real package
-directories.  Corpus directory basenames are preserved and must match
-the Pkgfile package name.  Both builders share one canonical recipe,
-configuration path, source cache, package-output directory, absolute
+reference libpkgbuild frontend.  It accepts the bundled directory
+corpus or an ordered manifest of real package directories.  Corpus
+directory basenames are preserved and must match the Pkgfile package
+name.  Declared recipe-local and sibling local sources are staged with
+their collection-relative topology while collection escapes are rejected.
+Both builders share one canonical recipe, configuration path, source
+cache, package-output directory, absolute
 private workspace path, private temporary directory, and explicit
 `C.UTF-8` locale.  The candidate allocates the workspace through the
 production engine; the runner then moves its archive aside, resets the
@@ -146,9 +152,10 @@ both engines are internally stable.
 
 A campaign may source the same baseline pkgmk configuration and may
 download missing sources explicitly.  Legacy build failures, candidate
-build failures, nondeterministic outputs, and semantic mismatches are
-classified separately and do not stop later cases.  Per-run packages,
-combined stdout/stderr logs, exact workspace records, and cross/repeat
+build failures, post-build artifact inspection failures,
+nondeterministic outputs, and semantic mismatches are classified
+separately and do not stop later cases.  Per-run packages, combined
+stdout/stderr logs, exact workspace records, and cross/repeat
 comparison reports are retained beneath the private run directory;
 successful trees are discarded unless `--keep-work` was requested.
 
@@ -213,14 +220,21 @@ Implemented
 * Hardlink-safe ELF, shared-object, and ar archive stripping.
 * Virtual ar member ownership preserved across trusted stripping.
 * POSIX-BRE `.nostrip` normalization for Pkgfile definitions.
-* Deterministic, hardlink-safe manual-page compression and symlink rewrite.
-* Normalized footprint generation, legacy manifest parsing, comparison, and atomic replacement.
-* libpkgimage-based semantic archive comparison, including ar timestamp
-  normalization, and pkgmk differential corpus runner.
-* Ordered real-package manifests with isolated shared source caches.
-* Per-case parity failure classification and retained diagnostic evidence.
-* Same-path sequential pkgmk/libpkgbuild parity execution with a shared private TMPDIR.
-* On-demand same-path repeat builds and nondeterministic-output classification.
+* Deterministic, hardlink-safe manual-page compression and symlink
+  coalescing.
+* Normalized footprint generation, legacy manifest parsing, comparison,
+  and atomic replacement.
+* libpkgimage-based semantic archive comparison, including magic-based
+  ar detection and timestamp normalization, and pkgmk differential corpus
+  runner.
+* Ordered real-package manifests with isolated shared source caches and
+  collection-relative sibling local sources.
+* Per-case build, artifact-inspection, instability, and semantic failure
+  classification with retained diagnostic evidence.
+* Same-path sequential pkgmk/libpkgbuild parity execution with a shared
+  private TMPDIR.
+* On-demand same-path repeat builds and nondeterministic-output
+  classification.
 * Controlled exact private workspace replay for trusted orchestrators.
 * SourceExtractor and manifest-driven PackageWriter abstractions with
   a libarchive implementation.

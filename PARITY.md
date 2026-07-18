@@ -28,13 +28,15 @@ must be valid single-member gzip streams.  Their decompressed sizes and
 payload hashes are compared, so gzip filename and timestamp headers do
 not create false differences.  Other gzip files remain byte-sensitive.
 
-Regular files whose package path ends in `.a` must be valid ordinary ar
-archives.  Their member timestamp fields are removed from the semantic
-hash, because sequential builds necessarily stamp them at different
-wall-clock times.  Every other archive byte remains significant, including
-member order, names, modes, uid/gid fields, long-name and symbol-table
-payloads, object
-payloads, and padding.  Thin archives remain invalid package payloads.
+Regular-file payload type is detected from content, not from its package
+filename.  The `!<arch>\n` magic selects ordinary ar semantics, while a
+file such as a GNU linker script named `libm.a` remains an ordinary byte
+payload.  Ar member timestamp fields are removed from the semantic hash,
+because sequential builds necessarily stamp them at different wall-clock
+times.  Every other archive byte remains significant, including member
+order, names, modes, uid/gid fields, long-name and symbol-table payloads,
+object payloads, and padding.  Thin archives remain invalid package
+payloads.
 
 Archive order, package compression representation, entry identifiers,
 and modification timestamps are not compared.  Hard links are compared
@@ -55,9 +57,13 @@ Corpus runner
 
 `pkgbuild-parity` copies every package into one canonical recipe
 directory without changing its basename.  The basename must match the
-Pkgfile `name`, as required by both builders.  The exact package filename
-must also match, covering package name, version, release, and compression
-identity.
+Pkgfile `name`, as required by both builders.  Declared local sources
+are inspected before the build.  References to sibling package files,
+such as `../glibc/patch`, are copied into the canonical recipe collection
+with the same relative topology.  Only declared files are copied.  Paths
+that escape or resolve outside the source collection are rejected.  The
+exact package filename must also match, covering package name, version,
+release, and compression identity.
 
 The candidate runs first and allocates its normal private
 `.pkgbuild.XXXXXX` workspace.  Its archive is moved aside, the workspace
@@ -127,15 +133,19 @@ Every package produces exactly one result line:
 PASS package
 LEGACY_BUILD_FAILED package
 CANDIDATE_BUILD_FAILED package
+ARTIFACT_INSPECTION_FAILED package
 NONDETERMINISTIC_OUTPUT package
 SEMANTIC_MISMATCH package
 ```
 
-A package-level failure does not stop the remaining manifest.  The final
-summary reports counts for each class.  Exit status is 0 only when every
-case passes, 1 when any package fails or differs, and 2 for invalid
-arguments or a harness-level operation that prevents the campaign from
-continuing.
+A package-level failure does not stop the remaining manifest.  Builder
+executor errors and nonzero exits are reported as legacy or candidate
+build failures.  A successful builder whose package cannot be moved,
+located, or inspected is reported as `ARTIFACT_INSPECTION_FAILED`, with
+the responsible engine named in the retained report.  The final summary
+reports counts for each class.  Exit status is 0 only when every case
+passes, 1 when any package fails or differs, and 2 for invalid arguments
+or a harness-level operation that prevents the campaign from continuing.
 
 A cross-engine mismatch is not immediately accepted as semantic.  The
 runner resets the original private workspace and rebuilds the candidate
@@ -152,6 +162,7 @@ moved beneath the private run workspace:
 ```
 <work-base>/.pkgbuild-parity.XXXXXX/failed/<package>/
     recipe/<package>/
+    recipe/<referenced-sibling>/...  # when required
     pkgmk/
         run-1/{packages/,build.log,workspace.txt}
         run-2/{packages/,build.log,workspace.txt}  # when reached
