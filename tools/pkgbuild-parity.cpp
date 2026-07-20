@@ -8,12 +8,14 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <charconv>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <grp.h>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <optional>
 #include <pwd.h>
@@ -299,6 +301,18 @@ std::vector<std::string> split_nul_fields(const std::string& data)
     return result;
 }
 
+std::size_t inspected_source_count(const std::string& value)
+{
+    std::size_t result = 0;
+    const auto parsed = std::from_chars(
+        value.data(), value.data() + value.size(), result);
+    if (parsed.ec != std::errc{} ||
+        parsed.ptr != value.data() + value.size())
+        throw std::runtime_error(
+            "Pkgfile helper returned an invalid source count");
+    return result;
+}
+
 std::vector<pkgbuild::Source> inspect_sources(
     const Options& options,
     const pkgbuild::ProcessExecutor& executor,
@@ -335,15 +349,19 @@ std::vector<pkgbuild::Source> inspect_sources(
             std::to_string(result.exit_status));
 
     const auto fields = split_nul_fields(result.stdout_data);
-    if (fields.size() != 8 || fields[0] != "pkgfile/0")
+    if (fields.size() < 8 || fields[0] != "pkgfile-helper/1")
         throw std::runtime_error(
             "Pkgfile helper returned an unsupported definition record");
+    const auto count = inspected_source_count(fields[7]);
+    if (count > std::numeric_limits<std::size_t>::max() - 8 ||
+        fields.size() != 8 + count)
+        throw std::runtime_error(
+            "Pkgfile helper returned an inconsistent source record");
 
     std::vector<pkgbuild::Source> result_sources;
-    std::istringstream declarations(fields[4]);
-    std::string declaration;
-    while (declarations >> declaration)
-        result_sources.push_back(pkgbuild::parse_source(declaration));
+    result_sources.reserve(count);
+    for (std::size_t index = 0; index != count; ++index)
+        result_sources.push_back(pkgbuild::parse_source(fields[8 + index]));
     return result_sources;
 }
 

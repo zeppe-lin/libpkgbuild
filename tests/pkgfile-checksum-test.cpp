@@ -149,6 +149,19 @@ int main(int argc, char** argv)
                     "d41d8cd98f00b204e9800998ecf8427e",
                 "renamed source checksum was not normalized");
 
+        const auto glob = make_recipe(
+            root, "glob", "*.patch",
+            "d41d8cd98f00b204e9800998ecf8427e  alpha.patch\n"
+            "d41d8cd98f00b204e9800998ecf8427e  beta.patch\n");
+        std::ofstream(glob / "beta.patch");
+        std::ofstream(glob / "alpha.patch");
+        const auto glob_definition = loader.load(request_for(glob), events);
+        require(glob_definition.sources.size() == 2,
+                "source glob did not expand");
+        require(glob_definition.sources[0].declaration == "alpha.patch" &&
+                    glob_definition.sources[1].declaration == "beta.patch",
+                "source glob order does not match shell expansion");
+
         const auto source_less =
             make_recipe(root, "source-less", "", std::nullopt);
         require(loader.load(request_for(source_less), events).sources.empty(),

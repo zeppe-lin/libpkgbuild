@@ -89,7 +89,7 @@ printf '%s\n' "$identity_output" | grep -q 'package-filename'
 # continuation after failures, and retained evidence.
 manifest_root=$work/manifest
 mkdir -p "$manifest_root/cases"
-for name in pass sibling legacy-fail candidate-fail artifact-fail \
+for name in pass sibling glob legacy-fail candidate-fail artifact-fail \
     different candidate-unstable legacy-unstable; do
     make_case "$manifest_root/cases/$name"
 done
@@ -108,6 +108,20 @@ printf '%s  %s\n' \
     "$(md5sum "$manifest_root/cases/shared/payload.txt" | cut -d' ' -f1)" \
     'payload.txt' > "$manifest_root/cases/sibling/.md5sum"
 : > "$manifest_root/cases/sibling/require-sibling-source"
+printf '%s\n' 'alpha' > "$manifest_root/cases/shared/alpha.patch"
+printf '%s\n' 'beta' > "$manifest_root/cases/shared/beta.patch"
+printf '%s\n' \
+    'name=glob' \
+    'version=1.0' \
+    'release=1' \
+    'source="../shared/*.patch"' \
+    'build() { :; }' > "$manifest_root/cases/glob/Pkgfile"
+printf '%s  %s\n' \
+    "$(md5sum "$manifest_root/cases/shared/alpha.patch" | cut -d' ' -f1)" \
+    'alpha.patch' \
+    "$(md5sum "$manifest_root/cases/shared/beta.patch" | cut -d' ' -f1)" \
+    'beta.patch' > "$manifest_root/cases/glob/.md5sum"
+: > "$manifest_root/cases/glob/require-glob-sources"
 : > "$manifest_root/cases/legacy-fail/legacy-build-fail"
 : > "$manifest_root/cases/candidate-fail/candidate-build-fail"
 : > "$manifest_root/cases/artifact-fail/candidate-artifact-fail"
@@ -118,6 +132,7 @@ printf '%s\n' \
     '# ordered real-package manifest fixture' \
     'cases/pass' \
     'cases/sibling' \
+    'cases/glob' \
     'cases/legacy-fail' \
     'cases/candidate-fail' \
     'cases/artifact-fail' \
@@ -146,6 +161,7 @@ set -e
 test "$manifest_status" -eq 1
 printf '%s\n' "$manifest_output" | grep -q '^PASS pass$'
 printf '%s\n' "$manifest_output" | grep -q '^PASS sibling$'
+printf '%s\n' "$manifest_output" | grep -q '^PASS glob$'
 printf '%s\n' "$manifest_output" | grep -q '^LEGACY_BUILD_FAILED legacy-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^CANDIDATE_BUILD_FAILED candidate-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^ARTIFACT_INSPECTION_FAILED artifact-fail$'
@@ -155,11 +171,12 @@ printf '%s\n' "$manifest_output" | grep -q \
 printf '%s\n' "$manifest_output" | grep -q \
     '^NONDETERMINISTIC_OUTPUT legacy-unstable$'
 printf '%s\n' "$manifest_output" | grep -q \
-    '^SUMMARY pass=2 legacy-build-failed=1 candidate-build-failed=1 artifact-inspection-failed=1 nondeterministic-output=2 semantic-mismatch=1$'
+    '^SUMMARY pass=3 legacy-build-failed=1 candidate-build-failed=1 artifact-inspection-failed=1 nondeterministic-output=2 semantic-mismatch=1$'
 failed_work=$(printf '%s\n' "$manifest_output" | sed -n 's/^FAILED_WORK //p')
 test -n "$failed_work"
 test ! -e "$failed_work/pass"
 test ! -e "$failed_work/sibling"
+test ! -e "$failed_work/glob"
 for name in legacy-fail candidate-fail artifact-fail different \
     candidate-unstable legacy-unstable; do
     test -f "$failed_work/$name/comparison.txt"

@@ -49,6 +49,11 @@ if [ -f require-sibling-source ] &&
     echo "fake-pkgmk: sibling local source was not staged" >&2
     exit 2
 fi
+if [ -f require-glob-sources ] &&
+   { [ ! -f ../shared/alpha.patch ] || [ ! -f ../shared/beta.patch ]; }; then
+    echo "fake-pkgmk: sibling source glob was not staged" >&2
+    exit 2
+fi
 if [ -f legacy-build-fail ]; then
     echo "legacy fixture stdout"
     echo "legacy fixture stderr" >&2

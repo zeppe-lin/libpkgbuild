@@ -78,6 +78,12 @@ if [ -f "$recipe/require-sibling-source" ] &&
     echo "fake-pkgbuild: sibling local source was not staged" >&2
     exit 2
 fi
+if [ -f "$recipe/require-glob-sources" ] &&
+   { [ ! -f "$recipe/../shared/alpha.patch" ] ||
+     [ ! -f "$recipe/../shared/beta.patch" ]; }; then
+    echo "fake-pkgbuild: sibling source glob was not staged" >&2
+    exit 2
+fi
 
 if [ -n "$workspace_dir" ]; then
     workspace=$workspace_dir

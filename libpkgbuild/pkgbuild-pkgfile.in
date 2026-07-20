@@ -68,9 +68,18 @@ command -V build 2>/dev/null | grep -qwi function || \
 
 case $mode in
 inspect)
+	# Match pkgmk's unquoted source iteration: field splitting and pathname
+	# expansion happen in the shell after the Pkgfile and configuration have
+	# been evaluated.  The private record frames every resulting source word.
+	# Intentional: legacy source declarations use shell word splitting.
+	# shellcheck disable=SC2086
+	set -- $source
 	printf '%s\0' \
-		'pkgfile/0' "$name" "$version" "$release" "$source" \
-		"$PKGMK_ARCHIVE_FORMAT" "$PKGMK_COMPRESSION_MODE" 'build'
+		'pkgfile-helper/1' "$name" "$version" "$release" \
+		"$PKGMK_ARCHIVE_FORMAT" "$PKGMK_COMPRESSION_MODE" 'build' "$#"
+	for source_word do
+		printf '%s\0' "$source_word"
+	done
 	;;
 run)
 	# Configuration supplies build policy, not engine-owned paths.  Reassert

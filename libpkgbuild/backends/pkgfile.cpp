@@ -8,12 +8,14 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cctype>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <pwd.h>
 #include <regex.h>
@@ -29,14 +31,16 @@ std::string optional_path(const std::optional<std::filesystem::path>& path)
     return path ? std::filesystem::absolute(*path).string() : std::string{};
 }
 
-std::vector<std::string> split_sources(const std::string& value)
+std::size_t source_count(const std::string& value)
 {
-    std::istringstream input(value);
-    std::vector<std::string> sources;
-    std::string item;
-    while (input >> item)
-        sources.push_back(std::move(item));
-    return sources;
+    std::size_t result = 0;
+    const auto parsed = std::from_chars(
+        value.data(), value.data() + value.size(), result);
+    if (parsed.ec != std::errc{} ||
+        parsed.ptr != value.data() + value.size())
+        throw Error(ErrorCode::invalid_definition,
+                    "Pkgfile worker returned an invalid source count");
+    return result;
 }
 
 std::string trim(std::string value)
@@ -340,19 +344,24 @@ PackageDefinition PkgfileDefinitionLoader::load(const DefinitionRequest& request
                         std::to_string(process.exit_status));
 
     const auto fields = detail::split_nul(process.stdout_data);
-    if (fields.size() != 8 || fields[0] != "pkgfile/0")
+    if (fields.size() < 8 || fields[0] != "pkgfile-helper/1")
         throw Error(ErrorCode::invalid_definition,
                     "Pkgfile worker returned an unsupported definition record");
+    const auto count = source_count(fields[7]);
+    if (count > std::numeric_limits<std::size_t>::max() - 8 ||
+        fields.size() != 8 + count)
+        throw Error(ErrorCode::invalid_definition,
+                    "Pkgfile worker returned an inconsistent source record");
 
     PackageDefinition definition;
     definition.id = PackageId{fields[1], fields[2], fields[3]};
-    for (const auto& source : split_sources(fields[4]))
-        definition.sources.push_back(parse_source(source));
+    for (std::size_t index = 0; index != count; ++index)
+        definition.sources.push_back(parse_source(fields[8 + index]));
     attach_md5_manifest(definition.sources,
                         std::filesystem::absolute(request.paths.recipe_dir));
     definition.archive = ArchiveSpec{
-        archive_format_from_string(fields[5]),
-        compression_from_string(fields[6]),
+        archive_format_from_string(fields[4]),
+        compression_from_string(fields[5]),
     };
     definition.strip_exclusions = read_strip_exclusions(
         std::filesystem::absolute(request.paths.recipe_dir));
@@ -363,7 +372,7 @@ PackageDefinition PkgfileDefinitionLoader::load(const DefinitionRequest& request
             std::optional<std::filesystem::path>(
                 std::filesystem::absolute(*request.config_file)) :
             std::nullopt,
-        fields[7],
+        fields[6],
     };
 
     return definition;
