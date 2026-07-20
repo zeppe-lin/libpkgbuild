@@ -89,8 +89,8 @@ printf '%s\n' "$identity_output" | grep -q 'package-filename'
 # continuation after failures, and retained evidence.
 manifest_root=$work/manifest
 mkdir -p "$manifest_root/cases"
-for name in pass sibling glob legacy-fail candidate-fail artifact-fail \
-    different candidate-unstable legacy-unstable; do
+for name in pass sibling glob preparation-fail legacy-fail candidate-fail \
+    artifact-fail different candidate-unstable legacy-unstable; do
     make_case "$manifest_root/cases/$name"
 done
 : > "$manifest_root/cases/pass/require-baseline"
@@ -122,6 +122,12 @@ printf '%s  %s\n' \
     "$(md5sum "$manifest_root/cases/shared/beta.patch" | cut -d' ' -f1)" \
     'beta.patch' > "$manifest_root/cases/glob/.md5sum"
 : > "$manifest_root/cases/glob/require-glob-sources"
+printf '%s\n' \
+    'name=preparation-fail' \
+    'version=1.0' \
+    'release=1' \
+    'source="../missing/*.patch"' \
+    'build() { :; }' > "$manifest_root/cases/preparation-fail/Pkgfile"
 : > "$manifest_root/cases/legacy-fail/legacy-build-fail"
 : > "$manifest_root/cases/candidate-fail/candidate-build-fail"
 : > "$manifest_root/cases/artifact-fail/candidate-artifact-fail"
@@ -133,6 +139,7 @@ printf '%s\n' \
     'cases/pass' \
     'cases/sibling' \
     'cases/glob' \
+    'cases/preparation-fail' \
     'cases/legacy-fail' \
     'cases/candidate-fail' \
     'cases/artifact-fail' \
@@ -162,6 +169,8 @@ test "$manifest_status" -eq 1
 printf '%s\n' "$manifest_output" | grep -q '^PASS pass$'
 printf '%s\n' "$manifest_output" | grep -q '^PASS sibling$'
 printf '%s\n' "$manifest_output" | grep -q '^PASS glob$'
+printf '%s\n' "$manifest_output" | grep -q \
+    '^CASE_PREPARATION_FAILED preparation-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^LEGACY_BUILD_FAILED legacy-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^CANDIDATE_BUILD_FAILED candidate-fail$'
 printf '%s\n' "$manifest_output" | grep -q '^ARTIFACT_INSPECTION_FAILED artifact-fail$'
@@ -171,16 +180,22 @@ printf '%s\n' "$manifest_output" | grep -q \
 printf '%s\n' "$manifest_output" | grep -q \
     '^NONDETERMINISTIC_OUTPUT legacy-unstable$'
 printf '%s\n' "$manifest_output" | grep -q \
-    '^SUMMARY pass=3 legacy-build-failed=1 candidate-build-failed=1 artifact-inspection-failed=1 nondeterministic-output=2 semantic-mismatch=1$'
+    '^SUMMARY pass=3 case-preparation-failed=1 legacy-build-failed=1 candidate-build-failed=1 artifact-inspection-failed=1 nondeterministic-output=2 semantic-mismatch=1$'
 failed_work=$(printf '%s\n' "$manifest_output" | sed -n 's/^FAILED_WORK //p')
 test -n "$failed_work"
 test ! -e "$failed_work/pass"
 test ! -e "$failed_work/sibling"
 test ! -e "$failed_work/glob"
-for name in legacy-fail candidate-fail artifact-fail different \
-    candidate-unstable legacy-unstable; do
+for name in preparation-fail legacy-fail candidate-fail artifact-fail \
+    different candidate-unstable legacy-unstable; do
     test -f "$failed_work/$name/comparison.txt"
 done
+test ! -e "$failed_work/preparation-fail/pkgmk"
+test ! -e "$failed_work/preparation-fail/libpkgbuild"
+grep -q '^status: CASE_PREPARATION_FAILED$' \
+    "$failed_work/preparation-fail/comparison.txt"
+grep -q '^detail: setup-error: local source is not a regular file: ../missing/\*.patch$' \
+    "$failed_work/preparation-fail/comparison.txt"
 test -d "$failed_work/legacy-fail/pkgmk/run-1"
 test -d "$failed_work/legacy-fail/libpkgbuild/run-1"
 test -d "$failed_work/candidate-fail/libpkgbuild/run-1"

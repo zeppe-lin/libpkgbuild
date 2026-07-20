@@ -476,6 +476,7 @@ void write_build_config(
 
 enum class CaseStatus {
     pass,
+    case_preparation_failed,
     legacy_build_failed,
     candidate_build_failed,
     artifact_inspection_failed,
@@ -487,6 +488,8 @@ const char* status_name(CaseStatus status) noexcept
 {
     switch (status) {
     case CaseStatus::pass: return "PASS";
+    case CaseStatus::case_preparation_failed:
+        return "CASE_PREPARATION_FAILED";
     case CaseStatus::legacy_build_failed: return "LEGACY_BUILD_FAILED";
     case CaseStatus::candidate_build_failed: return "CANDIDATE_BUILD_FAILED";
     case CaseStatus::artifact_inspection_failed:
@@ -1016,17 +1019,25 @@ CaseResult run_case(const Options& options,
     const auto temporary = root / "tmp";
     const auto config = root / "pkgmk.conf";
 
-    std::filesystem::create_directories(packages);
-    std::filesystem::create_directories(sources);
-    std::filesystem::create_directories(work_base);
-    std::filesystem::create_directories(temporary);
-    write_build_config(config, options.config_file, sources, packages, work_base);
-    const auto declared_sources = inspect_sources(
-        options, executor, identity, environment, corpus_case, config,
-        sources, packages, work_base);
-    copy_recipe(corpus_case, recipe);
-    copy_local_sources(corpus_case, recipe, declared_sources);
-    assign_tree(root, identity);
+    std::filesystem::create_directories(root);
+    try {
+        std::filesystem::create_directories(packages);
+        std::filesystem::create_directories(sources);
+        std::filesystem::create_directories(work_base);
+        std::filesystem::create_directories(temporary);
+        write_build_config(config, options.config_file, sources, packages,
+                           work_base);
+        const auto declared_sources = inspect_sources(
+            options, executor, identity, environment, corpus_case, config,
+            sources, packages, work_base);
+        copy_recipe(corpus_case, recipe);
+        copy_local_sources(corpus_case, recipe, declared_sources);
+        assign_tree(root, identity);
+    } catch (const std::exception& error) {
+        return failed_case(
+            CaseStatus::case_preparation_failed, name, corpus_case, root,
+            {std::string("setup-error: ") + error.what()});
+    }
 
     const auto candidate_one = run_candidate_attempt(
         options, executor, identity, environment, recipe, sources, packages,
@@ -1143,6 +1154,8 @@ int main(int argc, char** argv)
 
         std::cout << "SUMMARY"
                   << " pass=" << counts[CaseStatus::pass]
+                  << " case-preparation-failed="
+                  << counts[CaseStatus::case_preparation_failed]
                   << " legacy-build-failed="
                   << counts[CaseStatus::legacy_build_failed]
                   << " candidate-build-failed="
@@ -1157,6 +1170,7 @@ int main(int argc, char** argv)
         if (options.keep_work)
             std::cout << "WORK " << workspace.path().string() << '\n';
         const std::size_t failures =
+            counts[CaseStatus::case_preparation_failed] +
             counts[CaseStatus::legacy_build_failed] +
             counts[CaseStatus::candidate_build_failed] +
             counts[CaseStatus::artifact_inspection_failed] +
