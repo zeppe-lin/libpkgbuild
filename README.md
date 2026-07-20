@@ -165,7 +165,12 @@ nondeterministic outputs, and semantic mismatches are classified
 separately and do not stop later cases.  Per-run packages, combined
 stdout/stderr logs, exact workspace records, and cross/repeat
 comparison reports are retained beneath the private run directory;
-successful trees are discarded unless `--keep-work` was requested.
+successful case trees are discarded unless `--keep-work` was requested.
+Every completed campaign retains a bounded human `report.txt` and a
+machine-readable `results.tsv`.  Compact terminal output shows only indexed
+case progress, while `--verbose-builds` restores complete log relay.  Report
+detail and failed-log tail limits are configurable, and `--report` copies the
+human report to a stable external path for remote qualification workflows.
 
 The runner executes pkgmk under fakeroot and applies the same explicit
 non-root build identity used by the candidate build.  It never mutates
@@ -242,6 +247,8 @@ Implemented
   collection-relative sibling local sources.
 * Per-case preparation, build, artifact-inspection, instability, and
   semantic failure classification with retained diagnostic evidence.
+* Compact parity progress, bounded human campaign reports, and deterministic
+  per-case TSV result ledgers.
 * Same-path sequential pkgmk/libpkgbuild parity execution with a shared
   private TMPDIR.
 * On-demand same-path repeat builds and nondeterministic-output

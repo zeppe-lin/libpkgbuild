@@ -120,7 +120,8 @@ pkgbuild-parity \
     --config /etc/pkgmk.conf \
     --download \
     --manifest "$PWD/parity-corpus.list" \
-    --work-dir "$PWD/build/parity-work"
+    --work-dir "$PWD/build/parity-work" \
+    --report "$PWD/build/parity-reports/pkgsrc-core.txt"
 ```
 
 A root caller must select an explicit non-root identity.  An ordinary
@@ -129,17 +130,18 @@ caller omits `--build-user`.
 Results and evidence
 --------------------
 
-Every package produces exactly one result line:
+Compact mode prints one indexed start and result line per package:
 
 ```
-PASS package
-CASE_PREPARATION_FAILED package
-LEGACY_BUILD_FAILED package
-CANDIDATE_BUILD_FAILED package
-ARTIFACT_INSPECTION_FAILED package
-NONDETERMINISTIC_OUTPUT package
-SEMANTIC_MISMATCH package
+[1/417] RUN acl
+[1/417] PASS acl
+[2/417] RUN shadow
+[2/417] CANDIDATE_BUILD_FAILED shadow
 ```
+
+`--verbose-builds` additionally relays each complete combined builder log.
+The default keeps long compiler output out of interactive SSH sessions while
+still retaining it as evidence.
 
 A package-level failure does not stop the remaining manifest.  Pkgfile
 inspection, canonical recipe staging, declared local-source staging, and
@@ -152,6 +154,30 @@ reports counts for each class.  A preparation failure retains the partial
 case tree but starts neither engine.  Exit status is 0 only when every case
 passes, 1 when any package fails or differs, and 2 for invalid arguments
 or a harness-level operation that prevents the campaign from continuing.
+
+Every completed campaign retains two top-level reports even when every case
+passes:
+
+```
+<work-base>/.pkgbuild-parity.XXXXXX/
+    report.txt
+    results.tsv
+    failed/                 # present only when needed
+```
+
+`results.tsv` contains one row per manifest entry with its index, package
+name, status, source directory, elapsed seconds, and relative evidence path.
+It is the stable input for cross-machine aggregation.  `report.txt` is the
+bounded human report intended for terminal inspection and copy/paste: it
+contains campaign identity, status totals, every non-pass case, a limited
+number of structured details, and the tail of the relevant failed builder
+log.  Complete `comparison.txt` files and build logs remain authoritative.
+
+`--report FILE` copies the human report to a stable external path while the
+campaign-local copy remains retained.  `--report-details N` controls the
+number of structured details shown per case (default 12), and
+`--report-tail N` controls failed build-log lines (default 40).  Zero disables
+the corresponding excerpt without removing full evidence.
 
 A cross-engine mismatch is not immediately accepted as semantic.  The
 runner resets the original private workspace and rebuilds the candidate
@@ -196,13 +222,18 @@ The final `work/.pkgbuild.XXXXXX` tree belongs to the last reached run.
 differences.  `comparison.txt` records the source package directory,
 result class, and final structured diagnostics.  `FAILED_WORK` prints the
 retained failure root.
-Successful case trees are removed unless `--keep-work` is supplied; with
-that option, `WORK` also prints the complete run workspace.
+Successful case trees are removed unless `--keep-work` is supplied; the
+campaign root itself always survives because it contains `report.txt` and
+`results.tsv`.  With `--keep-work`, `WORK` also prints the complete run
+workspace.  `REPORT` prints the external report path when `--report` is used,
+otherwise the campaign-local path.  `CAMPAIGN_REPORT` identifies the retained
+local copy when an external copy exists.  `RESULTS` prints the TSV path, and
+`FAILED_WORK` prints the retained failure root when needed.
 
 Each `build.log` contains merged standard output and standard error in one
 stream, including recipe tracing, compiler diagnostics, and frontend errors.
-The same stream is also relayed to the invoking terminal while the campaign
-runs.
+Compact mode does not copy that stream to the terminal; `--verbose-builds`
+restores it for focused diagnosis.
 
 Initial corpus
 --------------
