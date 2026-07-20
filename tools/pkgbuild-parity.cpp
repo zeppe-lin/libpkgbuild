@@ -59,6 +59,7 @@ struct Options {
     std::filesystem::path work_base;
     bool download{false};
     bool keep_work{false};
+    bool verbose_builds{false};
     std::filesystem::path corpus;
 };
 
@@ -82,7 +83,8 @@ struct Options {
            << "  --manifest FILE        read package directories from FILE\n"
            << "  --work-dir DIR         workspace base\n"
            << "  -d, --download         download missing URI sources\n"
-           << "  --keep-work            retain generated corpus workspace\n"
+           << "  --keep-work            retain successful case workspaces\n"
+           << "  --verbose-builds       relay complete builder logs\n"
            << "  -h, --help             show this help\n";
     std::exit(status);
 }
@@ -133,6 +135,8 @@ Options parse_options(int argc, char** argv)
             options.download = true;
         } else if (option == "--keep-work") {
             options.keep_work = true;
+        } else if (option == "--verbose-builds") {
+            options.verbose_builds = true;
         } else if (option == "-h" || option == "--help") {
             usage(argv[0], 0);
         } else if (!option.empty() && option[0] == '-') {
@@ -543,14 +547,15 @@ struct BuilderRun {
 
 BuilderRun run_builder(const pkgbuild::ProcessExecutor& executor,
                        pkgbuild::ProcessRequest request,
-                       const std::filesystem::path& log)
+                       const std::filesystem::path& log,
+                       bool verbose)
 {
     request.capture_stdout = true;
     request.merge_stderr = true;
     try {
         auto result = executor.execute(request);
         write_text(log, result.stdout_data);
-        if (!result.stdout_data.empty())
+        if (verbose && !result.stdout_data.empty())
             std::cout << result.stdout_data;
         return BuilderRun{std::move(result), std::nullopt};
     } catch (const std::exception& error) {
@@ -605,13 +610,13 @@ void retain_failure(const std::filesystem::path& workspace, CaseResult& result)
     write_case_report(result);
 }
 
-void print_case_result(const CaseResult& result)
+void print_case_progress(std::size_t index,
+                         std::size_t total,
+                         const char* state,
+                         const std::string& name)
 {
-    std::cout << status_name(result.status) << ' ' << result.name << '\n';
-    for (const auto& detail : result.details)
-        std::cout << "  " << detail << '\n';
-    if (!result.passed())
-        std::cout << "  retained: " << result.root.string() << '\n';
+    std::cout << '[' << index << '/' << total << "] "
+              << state << ' ' << name << std::endl;
 }
 
 std::filesystem::path find_package(const std::filesystem::path& directory)
@@ -888,7 +893,7 @@ BuildAttempt run_candidate_attempt(
             true,
             true,
         },
-        evidence / "build.log");
+        evidence / "build.log", options.verbose_builds);
     if (run.error)
         return BuildAttempt{std::nullopt, std::nullopt,
                             {"executor-error: " + *run.error},
@@ -957,7 +962,7 @@ BuildAttempt run_legacy_attempt(
             true,
             true,
         },
-        evidence / "build.log");
+        evidence / "build.log", options.verbose_builds);
     if (run.error)
         return BuildAttempt{std::nullopt, std::nullopt,
                             {"executor-error: " + *run.error},
@@ -1136,12 +1141,16 @@ int main(int argc, char** argv)
         std::map<CaseStatus, std::size_t> counts;
         const auto cases = options.manifest ? manifest_cases(*options.manifest)
                                             : corpus_cases(options.corpus);
-        for (const auto& corpus_case : cases) {
+        for (std::size_t index = 0; index != cases.size(); ++index) {
+            const auto& corpus_case = cases[index];
+            print_case_progress(index + 1, cases.size(), "RUN",
+                                corpus_case.filename().string());
             auto result = run_case(options, executor, identity, environment,
                                    workspace.path(), corpus_case);
             ++counts[result.status];
             if (result.passed()) {
-                print_case_result(result);
+                print_case_progress(index + 1, cases.size(),
+                                    status_name(result.status), result.name);
                 if (!options.keep_work)
                     std::filesystem::remove_all(result.root);
                 continue;
@@ -1149,7 +1158,8 @@ int main(int argc, char** argv)
 
             workspace.preserve();
             retain_failure(workspace.path(), result);
-            print_case_result(result);
+            print_case_progress(index + 1, cases.size(),
+                                status_name(result.status), result.name);
         }
 
         std::cout << "SUMMARY"
