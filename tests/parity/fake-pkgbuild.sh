@@ -92,6 +92,9 @@ else
 fi
 mkdir -p "$workspace" "$tmp_dir"
 if [ -f "$recipe/candidate-build-fail" ]; then
+    echo "candidate fixture line 1"
+    echo "candidate fixture line 2"
+    echo "candidate fixture line 3"
     echo "candidate fixture stdout"
     echo "candidate fixture stderr" >&2
     exit 9
@@ -113,6 +116,12 @@ elif [ -f "$recipe/candidate-different" ]; then
     printf '%s\n' 'different payload' > "$tree/usr/share/parity/value"
 else
     printf '%s\n' 'same payload' > "$tree/usr/share/parity/value"
+fi
+if [ -f "$recipe/candidate-many-differences" ]; then
+    for number in 1 2 3 4 5; do
+        printf 'candidate detail %s\n' "$number" > \
+            "$tree/usr/share/parity/extra-$number"
+    done
 fi
 printf '%s\n' "$workspace" > "$tree/usr/share/parity/workspace"
 printf '%s\n' "$tmp_dir" > "$tree/usr/share/parity/tmpdir"
