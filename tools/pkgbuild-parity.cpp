@@ -9,6 +9,8 @@
 #include <array>
 #include <cerrno>
 #include <charconv>
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -511,6 +513,7 @@ struct CaseResult {
     std::filesystem::path source;
     std::filesystem::path root;
     std::vector<std::string> details;
+    std::uint64_t elapsed_seconds{0};
 
     bool passed() const noexcept
     {
@@ -617,6 +620,42 @@ void print_case_progress(std::size_t index,
 {
     std::cout << '[' << index << '/' << total << "] "
               << state << ' ' << name << std::endl;
+}
+
+std::string tsv_field(std::string value)
+{
+    for (char& character : value) {
+        if (character == '\t' || character == '\r' || character == '\n')
+            character = ' ';
+    }
+    return value;
+}
+
+void write_results_tsv(const std::filesystem::path& path,
+                       const std::filesystem::path& workspace,
+                       const std::vector<CaseResult>& results)
+{
+    std::ofstream output(path);
+    if (!output)
+        throw std::runtime_error("cannot write parity result ledger: " +
+                                 path.string());
+
+    output << "index\tname\tstatus\tsource\telapsed_seconds\tevidence\n";
+    for (std::size_t index = 0; index != results.size(); ++index) {
+        const auto& result = results[index];
+        std::string evidence;
+        if (!result.passed())
+            evidence = result.root.lexically_relative(workspace).generic_string();
+        output << index + 1 << '\t'
+               << tsv_field(result.name) << '\t'
+               << status_name(result.status) << '\t'
+               << tsv_field(result.source.string()) << '\t'
+               << result.elapsed_seconds << '\t'
+               << tsv_field(evidence) << '\n';
+    }
+    if (!output)
+        throw std::runtime_error("cannot finish parity result ledger: " +
+                                 path.string());
 }
 
 std::filesystem::path find_package(const std::filesystem::path& directory)
@@ -1139,20 +1178,27 @@ int main(int argc, char** argv)
         pkgbuild::PosixProcessExecutor executor;
 
         std::map<CaseStatus, std::size_t> counts;
+        std::vector<CaseResult> results;
         const auto cases = options.manifest ? manifest_cases(*options.manifest)
                                             : corpus_cases(options.corpus);
+        results.reserve(cases.size());
         for (std::size_t index = 0; index != cases.size(); ++index) {
             const auto& corpus_case = cases[index];
             print_case_progress(index + 1, cases.size(), "RUN",
                                 corpus_case.filename().string());
+            const auto started = std::chrono::steady_clock::now();
             auto result = run_case(options, executor, identity, environment,
                                    workspace.path(), corpus_case);
+            result.elapsed_seconds = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - started).count());
             ++counts[result.status];
             if (result.passed()) {
                 print_case_progress(index + 1, cases.size(),
                                     status_name(result.status), result.name);
                 if (!options.keep_work)
                     std::filesystem::remove_all(result.root);
+                results.push_back(std::move(result));
                 continue;
             }
 
@@ -1160,7 +1206,12 @@ int main(int argc, char** argv)
             retain_failure(workspace.path(), result);
             print_case_progress(index + 1, cases.size(),
                                 status_name(result.status), result.name);
+            results.push_back(std::move(result));
         }
+
+        const auto results_path = workspace.path() / "results.tsv";
+        write_results_tsv(results_path, workspace.path(), results);
+        workspace.preserve();
 
         std::cout << "SUMMARY"
                   << " pass=" << counts[CaseStatus::pass]
@@ -1176,6 +1227,7 @@ int main(int argc, char** argv)
                   << counts[CaseStatus::nondeterministic_output]
                   << " semantic-mismatch="
                   << counts[CaseStatus::semantic_mismatch] << '\n';
+        std::cout << "RESULTS " << results_path.string() << '\n';
 
         if (options.keep_work)
             std::cout << "WORK " << workspace.path().string() << '\n';
