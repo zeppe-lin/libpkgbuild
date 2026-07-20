@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <grp.h>
@@ -658,6 +659,174 @@ void write_results_tsv(const std::filesystem::path& path,
                                  path.string());
 }
 
+std::size_t status_count(const std::map<CaseStatus, std::size_t>& counts,
+                         CaseStatus status)
+{
+    const auto found = counts.find(status);
+    return found == counts.end() ? 0 : found->second;
+}
+
+std::string format_elapsed(std::uint64_t seconds)
+{
+    const auto hours = seconds / 3600;
+    const auto minutes = (seconds % 3600) / 60;
+    const auto remainder = seconds % 60;
+    std::ostringstream output;
+    output << (hours < 10 ? "0" : "") << hours << ':'
+           << (minutes < 10 ? "0" : "") << minutes << ':'
+           << (remainder < 10 ? "0" : "") << remainder;
+    return output.str();
+}
+
+bool has_detail_prefix(const CaseResult& result, const std::string& prefix)
+{
+    return std::any_of(
+        result.details.begin(), result.details.end(),
+        [&prefix](const std::string& detail) {
+            return detail.rfind(prefix, 0) == 0;
+        });
+}
+
+std::optional<std::filesystem::path> report_log(const CaseResult& result)
+{
+    std::string engine;
+    if (result.status == CaseStatus::candidate_build_failed)
+        engine = "libpkgbuild";
+    else if (result.status == CaseStatus::legacy_build_failed)
+        engine = "pkgmk";
+    else if (result.status == CaseStatus::artifact_inspection_failed) {
+        for (const auto& detail : result.details) {
+            if (detail.rfind("engine: ", 0) == 0) {
+                engine = detail.substr(std::strlen("engine: "));
+                break;
+            }
+        }
+    }
+    if (engine.empty())
+        return std::nullopt;
+    if (has_detail_prefix(result, "repeat-workspace-error:"))
+        return std::nullopt;
+
+    const char* run = has_detail_prefix(result, "repeat-run:")
+        ? "run-2" : "run-1";
+    const auto relative = std::filesystem::path(engine) / run / "build.log";
+    if (!std::filesystem::is_regular_file(result.root / relative))
+        return std::nullopt;
+    return relative;
+}
+
+std::vector<std::string> read_tail(const std::filesystem::path& path,
+                                   std::size_t limit)
+{
+    std::ifstream input(path);
+    if (!input)
+        throw std::runtime_error("cannot read parity build log: " +
+                                 path.string());
+    std::deque<std::string> lines;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (limit == 0)
+            continue;
+        if (lines.size() == limit)
+            lines.pop_front();
+        lines.push_back(line);
+    }
+    if (!input.eof())
+        throw std::runtime_error("cannot finish reading parity build log: " +
+                                 path.string());
+    return {lines.begin(), lines.end()};
+}
+
+void write_campaign_report(
+    const std::filesystem::path& path,
+    const Options& options,
+    const std::filesystem::path& workspace,
+    const std::map<CaseStatus, std::size_t>& counts,
+    const std::vector<CaseResult>& results,
+    std::size_t detail_limit,
+    std::size_t tail_limit)
+{
+    std::ofstream output(path);
+    if (!output)
+        throw std::runtime_error("cannot write parity campaign report: " +
+                                 path.string());
+
+    output << "PKGBUILD PARITY REPORT\n"
+           << "======================\n\n"
+           << "state: complete\n";
+    if (options.manifest)
+        output << "manifest: " << options.manifest->string() << '\n';
+    else
+        output << "corpus: " << options.corpus.string() << '\n';
+    output << "config: "
+           << (options.config_file ? options.config_file->string() : "(none)")
+           << '\n'
+           << "pkgmk: " << options.pkgmk.string() << '\n'
+           << "pkgbuild: " << options.pkgbuild.string() << '\n'
+           << "build-user: "
+           << (options.build_user ? *options.build_user : "(caller)") << '\n'
+           << "download: " << (options.download ? "yes" : "no") << '\n'
+           << "campaign-root: " << workspace.string() << "\n\n"
+           << "SUMMARY\n"
+           << "=======\n\n"
+           << "cases: " << results.size() << '\n'
+           << "pass: " << status_count(counts, CaseStatus::pass) << '\n'
+           << "case-preparation-failed: "
+           << status_count(counts, CaseStatus::case_preparation_failed) << '\n'
+           << "legacy-build-failed: "
+           << status_count(counts, CaseStatus::legacy_build_failed) << '\n'
+           << "candidate-build-failed: "
+           << status_count(counts, CaseStatus::candidate_build_failed) << '\n'
+           << "artifact-inspection-failed: "
+           << status_count(counts, CaseStatus::artifact_inspection_failed) << '\n'
+           << "nondeterministic-output: "
+           << status_count(counts, CaseStatus::nondeterministic_output) << '\n'
+           << "semantic-mismatch: "
+           << status_count(counts, CaseStatus::semantic_mismatch) << "\n\n"
+           << "FAILURES\n"
+           << "========\n";
+
+    bool have_failures = false;
+    for (const auto& result : results) {
+        if (result.passed())
+            continue;
+        have_failures = true;
+        const auto evidence =
+            result.root.lexically_relative(workspace).generic_string();
+        const auto shown = std::min(detail_limit, result.details.size());
+        output << "\n[" << result.name << "]\n"
+               << "status: " << status_name(result.status) << '\n'
+               << "source: " << result.source.string() << '\n'
+               << "elapsed: " << format_elapsed(result.elapsed_seconds) << '\n'
+               << "details: " << result.details.size() << '\n'
+               << "shown: " << shown << '\n';
+        for (std::size_t index = 0; index != shown; ++index)
+            output << "  " << result.details[index] << '\n';
+        if (shown != result.details.size())
+            output << "  " << result.details.size() - shown
+                   << " additional details omitted\n";
+        output << "evidence: " << evidence << '\n'
+               << "full-comparison: " << evidence << "/comparison.txt\n";
+
+        const auto relative_log = report_log(result);
+        if (relative_log) {
+            const auto log = result.root / *relative_log;
+            const auto report_relative =
+                (std::filesystem::path(evidence) / *relative_log).generic_string();
+            const auto tail = read_tail(log, tail_limit);
+            output << "log: " << report_relative << '\n'
+                   << "last " << tail.size() << " lines:\n";
+            for (const auto& line : tail)
+                output << "  " << line << '\n';
+        }
+    }
+    if (!have_failures)
+        output << "\nnone\n";
+    if (!output)
+        throw std::runtime_error("cannot finish parity campaign report: " +
+                                 path.string());
+}
+
 std::filesystem::path find_package(const std::filesystem::path& directory)
 {
     std::vector<std::filesystem::path> packages;
@@ -1210,7 +1379,10 @@ int main(int argc, char** argv)
         }
 
         const auto results_path = workspace.path() / "results.tsv";
+        const auto report_path = workspace.path() / "report.txt";
         write_results_tsv(results_path, workspace.path(), results);
+        write_campaign_report(report_path, options, workspace.path(), counts,
+                              results, 12, 40);
         workspace.preserve();
 
         std::cout << "SUMMARY"
@@ -1227,6 +1399,7 @@ int main(int argc, char** argv)
                   << counts[CaseStatus::nondeterministic_output]
                   << " semantic-mismatch="
                   << counts[CaseStatus::semantic_mismatch] << '\n';
+        std::cout << "REPORT " << report_path.string() << '\n';
         std::cout << "RESULTS " << results_path.string() << '\n';
 
         if (options.keep_work)
