@@ -59,7 +59,10 @@ struct Options {
     std::optional<std::string> build_user;
     std::optional<std::filesystem::path> config_file;
     std::optional<std::filesystem::path> manifest;
+    std::optional<std::filesystem::path> report_file;
     std::filesystem::path work_base;
+    std::size_t report_tail{40};
+    std::size_t report_details{12};
     bool download{false};
     bool keep_work{false};
     bool verbose_builds{false};
@@ -85,6 +88,9 @@ struct Options {
            << "  --config FILE          source baseline pkgmk configuration\n"
            << "  --manifest FILE        read package directories from FILE\n"
            << "  --work-dir DIR         workspace base\n"
+           << "  --report FILE          copy the human report to FILE\n"
+           << "  --report-tail N        build-log lines per failure (default: 40)\n"
+           << "  --report-details N     details per failure (default: 12)\n"
            << "  -d, --download         download missing URI sources\n"
            << "  --keep-work            retain successful case workspaces\n"
            << "  --verbose-builds       relay complete builder logs\n"
@@ -97,6 +103,18 @@ std::string require_argument(int& index, int argc, char** argv)
     if (++index >= argc)
         usage(argv[0], 2);
     return argv[index];
+}
+
+std::size_t parse_size_argument(const std::string& value,
+                                const std::string& option)
+{
+    std::size_t result = 0;
+    const auto parsed = std::from_chars(
+        value.data(), value.data() + value.size(), result);
+    if (value.empty() || parsed.ec != std::errc{} ||
+        parsed.ptr != value.data() + value.size())
+        throw std::runtime_error(option + " requires a non-negative integer");
+    return result;
 }
 
 std::filesystem::path absolute_program(const std::filesystem::path& path,
@@ -134,6 +152,14 @@ Options parse_options(int argc, char** argv)
             options.manifest = require_argument(i, argc, argv);
         } else if (option == "--work-dir") {
             options.work_base = require_argument(i, argc, argv);
+        } else if (option == "--report") {
+            options.report_file = require_argument(i, argc, argv);
+        } else if (option == "--report-tail") {
+            options.report_tail = parse_size_argument(
+                require_argument(i, argc, argv), option);
+        } else if (option == "--report-details") {
+            options.report_details = parse_size_argument(
+                require_argument(i, argc, argv), option);
         } else if (option == "-d" || option == "--download") {
             options.download = true;
         } else if (option == "--keep-work") {
@@ -170,6 +196,8 @@ Options parse_options(int argc, char** argv)
     }
     if (options.manifest)
         options.manifest = std::filesystem::absolute(*options.manifest);
+    if (options.report_file)
+        options.report_file = std::filesystem::absolute(*options.report_file);
     options.work_base = std::filesystem::absolute(options.work_base);
     if (!options.corpus.empty())
         options.corpus = std::filesystem::absolute(options.corpus);
@@ -827,6 +855,18 @@ void write_campaign_report(
                                  path.string());
 }
 
+void copy_campaign_report(const std::filesystem::path& source,
+                          const std::filesystem::path& destination)
+{
+    if (source.lexically_normal() == destination.lexically_normal())
+        return;
+    const auto parent = destination.parent_path();
+    if (!parent.empty())
+        std::filesystem::create_directories(parent);
+    std::filesystem::copy_file(
+        source, destination, std::filesystem::copy_options::overwrite_existing);
+}
+
 std::filesystem::path find_package(const std::filesystem::path& directory)
 {
     std::vector<std::filesystem::path> packages;
@@ -1382,7 +1422,10 @@ int main(int argc, char** argv)
         const auto report_path = workspace.path() / "report.txt";
         write_results_tsv(results_path, workspace.path(), results);
         write_campaign_report(report_path, options, workspace.path(), counts,
-                              results, 12, 40);
+                              results, options.report_details,
+                              options.report_tail);
+        if (options.report_file)
+            copy_campaign_report(report_path, *options.report_file);
         workspace.preserve();
 
         std::cout << "SUMMARY"
@@ -1399,7 +1442,11 @@ int main(int argc, char** argv)
                   << counts[CaseStatus::nondeterministic_output]
                   << " semantic-mismatch="
                   << counts[CaseStatus::semantic_mismatch] << '\n';
-        std::cout << "REPORT " << report_path.string() << '\n';
+        const auto visible_report = options.report_file
+            ? *options.report_file : report_path;
+        std::cout << "REPORT " << visible_report.string() << '\n';
+        if (options.report_file)
+            std::cout << "CAMPAIGN_REPORT " << report_path.string() << '\n';
         std::cout << "RESULTS " << results_path.string() << '\n';
 
         if (options.keep_work)
