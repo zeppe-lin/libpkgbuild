@@ -3,6 +3,7 @@
 #include <pkgbuild/stage.hpp>
 #include <pkgbuild/error.hpp>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <grp.h>
@@ -82,6 +83,32 @@ void assign_tree(const std::filesystem::path& root,
                 "cannot assign package tree");
 }
 
+void write_sectionless_elf(const std::filesystem::path& path,
+                           std::uint16_t type)
+{
+    std::array<unsigned char, 64> header{};
+    header[0] = 0x7f;
+    header[1] = 'E';
+    header[2] = 'L';
+    header[3] = 'F';
+    header[4] = 2;
+    header[5] = 1;
+    header[6] = 1;
+    header[16] = static_cast<unsigned char>(type & 0xffU);
+    header[17] = static_cast<unsigned char>((type >> 8U) & 0xffU);
+    header[18] = 0x3e;
+    header[20] = 1;
+    header[52] = 64;
+
+    std::ofstream output(path, std::ios::binary);
+    if (!output)
+        fail("cannot create sectionless ELF fixture");
+    output.write(reinterpret_cast<const char*>(header.data()),
+                 static_cast<std::streamsize>(header.size()));
+    if (!output)
+        fail("cannot write sectionless ELF fixture");
+}
+
 std::string read_file(const std::filesystem::path& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -122,9 +149,15 @@ int main(int argc, char** argv)
         const auto lib = root / "usr/lib";
         std::filesystem::create_directories(lib);
         std::ofstream(lib / "thin.a", std::ios::binary) << "!<thin>\nexternal.o/\n";
+        const auto firmware = root / "lib/firmware";
+        std::filesystem::create_directories(firmware);
+        write_sectionless_elf(firmware / "exec.mbn", 2);
+        write_sectionless_elf(firmware / "shared.mbn", 3);
 
         const auto keep_before = read_file(bin / "keep");
         const auto thin_before = read_file(lib / "thin.a");
+        const auto sectionless_exec_before = read_file(firmware / "exec.mbn");
+        const auto sectionless_shared_before = read_file(firmware / "shared.mbn");
         const auto size_before = std::filesystem::file_size(bin / "tool");
         auto package = pkgbuild::scan_staged_package(root);
 
@@ -153,6 +186,10 @@ int main(int argc, char** argv)
                 "excluded binary was changed");
         require(read_file(lib / "thin.a") == thin_before,
                 "thin archive crossed the staged-tree boundary");
+        require(read_file(firmware / "exec.mbn") == sectionless_exec_before,
+                "sectionless executable image was stripped");
+        require(read_file(firmware / "shared.mbn") == sectionless_shared_before,
+                "sectionless shared-object image was stripped");
 
         struct stat primary {};
         struct stat alias {};

@@ -296,6 +296,53 @@ std::uint64_t read_u64(const unsigned char* data, bool little_endian)
     return value;
 }
 
+bool has_section_table(int descriptor,
+                       const unsigned char* header,
+                       std::size_t header_size,
+                       bool little_endian)
+{
+    const bool elf64 = header[4] == 2;
+    const std::size_t required = elf64 ? 64 : 52;
+    if (header_size < required)
+        return false;
+
+    const std::uint64_t offset = elf64
+        ? read_u64(header + 40, little_endian)
+        : read_u32(header + 32, little_endian);
+    const std::uint16_t entry_size = read_u16(
+        header + (elf64 ? 58 : 46), little_endian);
+    std::uint64_t count = read_u16(
+        header + (elf64 ? 60 : 48), little_endian);
+    const std::uint16_t minimum_entry_size = elf64 ? 64 : 40;
+    if (offset == 0 || entry_size < minimum_entry_size)
+        return false;
+
+    struct stat status {};
+    if (fstat(descriptor, &status) != 0)
+        return false;
+    const auto file_size = static_cast<std::uint64_t>(status.st_size);
+    if (offset > file_size || entry_size > file_size - offset)
+        return false;
+
+    if (count == 0) {
+        unsigned char section_zero[64] {};
+        ssize_t read_count = 0;
+        do {
+            read_count = pread(descriptor, section_zero, minimum_entry_size,
+                               static_cast<off_t>(offset));
+        } while (read_count < 0 && errno == EINTR);
+        if (read_count != static_cast<ssize_t>(minimum_entry_size))
+            return false;
+        count = elf64
+            ? read_u64(section_zero + 32, little_endian)
+            : read_u32(section_zero + 20, little_endian);
+    }
+
+    if (count == 0 || count > (file_size - offset) / entry_size)
+        return false;
+    return true;
+}
+
 bool has_program_interpreter(int descriptor,
                              const unsigned char* header,
                              std::size_t header_size,
@@ -359,6 +406,10 @@ StripMode strip_mode(const std::filesystem::path& path)
         (header[4] == 1 || header[4] == 2) &&
         (header[5] == 1 || header[5] == 2)) {
         const bool little_endian = header[5] == 1;
+        if (!has_section_table(input.get(), header,
+                               static_cast<std::size_t>(count),
+                               little_endian))
+            return StripMode::none;
         const auto type = read_u16(header + 16, little_endian);
         if (type == 2)
             return StripMode::all;
