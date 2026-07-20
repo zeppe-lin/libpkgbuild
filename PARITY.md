@@ -57,9 +57,11 @@ Corpus runner
 
 `pkgbuild-parity` copies every package into one canonical recipe
 directory without changing its basename.  The basename must match the
-Pkgfile `name`, as required by both builders.  Declared local sources
-are inspected before the build.  References to sibling package files,
-such as `../glibc/patch`, are copied into the canonical recipe collection
+Pkgfile `name`, as required by both builders.  Declared source words are
+expanded by the private POSIX shell worker before the build, matching
+legacy field splitting and pathname expansion.  References to sibling
+package files, such as `../glibc/patch`, are copied into the canonical
+recipe collection
 with the same relative topology.  Only declared files are copied.  Paths
 that escape or resolve outside the source collection are rejected.  The
 exact package filename must also match, covering package name, version,
@@ -131,6 +133,7 @@ Every package produces exactly one result line:
 
 ```
 PASS package
+CASE_PREPARATION_FAILED package
 LEGACY_BUILD_FAILED package
 CANDIDATE_BUILD_FAILED package
 ARTIFACT_INSPECTION_FAILED package
@@ -138,12 +141,15 @@ NONDETERMINISTIC_OUTPUT package
 SEMANTIC_MISMATCH package
 ```
 
-A package-level failure does not stop the remaining manifest.  Builder
-executor errors and nonzero exits are reported as legacy or candidate
-build failures.  A successful builder whose package cannot be moved,
-located, or inspected is reported as `ARTIFACT_INSPECTION_FAILED`, with
+A package-level failure does not stop the remaining manifest.  Pkgfile
+inspection, canonical recipe staging, declared local-source staging, and
+other per-case setup errors are reported as `CASE_PREPARATION_FAILED`.
+Builder executor errors and nonzero exits are reported as legacy or
+candidate build failures.  A successful builder whose package cannot be
+moved, located, or inspected is reported as `ARTIFACT_INSPECTION_FAILED`, with
 the responsible engine named in the retained report.  The final summary
-reports counts for each class.  Exit status is 0 only when every case
+reports counts for each class.  A preparation failure retains the partial
+case tree but starts neither engine.  Exit status is 0 only when every case
 passes, 1 when any package fails or differs, and 2 for invalid arguments
 or a harness-level operation that prevents the campaign from continuing.
 

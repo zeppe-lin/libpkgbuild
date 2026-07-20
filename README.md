@@ -28,8 +28,11 @@ never needs real root authority.
 Source integrity model
 ----------------------
 
-The Pkgfile backend parses `.md5sum` as data after Pkgfile inspection
-and binds every declared source to exactly one typed digest.  Missing,
+The private Pkgfile worker expands source words with the same shell field
+splitting and pathname expansion used by legacy unquoted source iteration,
+then returns a framed source list to the semantic backend.  The Pkgfile
+backend parses `.md5sum` as data after inspection and binds every declared
+source to exactly one typed digest.  Missing,
 malformed, duplicate, ambiguous, or unrelated entries are rejected.
 The backend does not silently create a missing checksum manifest; that
 is an explicit maintenance operation rather than part of a build.
@@ -68,8 +71,10 @@ creation.  Transformations mutate both the payload tree and its
 StagedPackage manifest and return structured receipts through
 `BuildReceipt::transformations`.
 
-The package-tree backend currently strips ELF executables, ELF shared
-objects, and ar archives.  A hardlink group is transformed once through
+The package-tree backend currently strips ELF executables with valid
+section tables, ELF shared objects with valid section tables, and ar
+archives.  Sectionless ELF firmware images remain opaque payloads.  A
+hardlink group is transformed once through
 a private copy, then every pathname is replaced and relinked to the
 transformed inode.  Stripping therefore cannot silently split hardlinks.
 For ordinary ar archives, member uid and gid header fields are restored from
@@ -131,8 +136,9 @@ Pkgfile cases in isolated trees with both production pkgmk and the
 reference libpkgbuild frontend.  It accepts the bundled directory
 corpus or an ordered manifest of real package directories.  Corpus
 directory basenames are preserved and must match the Pkgfile package
-name.  Declared recipe-local and sibling local sources are staged with
-their collection-relative topology while collection escapes are rejected.
+name.  Shell-expanded recipe-local and sibling local sources are staged
+with their collection-relative topology while collection escapes are
+rejected.
 Both builders share one canonical recipe, configuration path, source
 cache, package-output directory, absolute
 private workspace path, private temporary directory, and explicit
@@ -151,8 +157,10 @@ packages differ.  A mismatch is reported as `SEMANTIC_MISMATCH` only when
 both engines are internally stable.
 
 A campaign may source the same baseline pkgmk configuration and may
-download missing sources explicitly.  Legacy build failures, candidate
-build failures, post-build artifact inspection failures,
+download missing sources explicitly.  Pkgfile inspection, recipe staging,
+and local-source preparation failures are retained per case instead of
+aborting the manifest.  Legacy build failures, candidate build failures,
+post-build artifact inspection failures,
 nondeterministic outputs, and semantic mismatches are classified
 separately and do not stop later cases.  Per-run packages, combined
 stdout/stderr logs, exact workspace records, and cross/repeat
@@ -217,7 +225,8 @@ Implemented
 * Typed source digests and descriptor-stable OpenSSL verification.
 * Strict legacy `.md5sum` normalization for Pkgfile definitions.
 * Structured package-tree transformation contracts and receipts.
-* Hardlink-safe ELF, shared-object, and ar archive stripping.
+* Hardlink-safe ELF, shared-object, and ar archive stripping with
+  sectionless ELF firmware exclusion.
 * Virtual ar member ownership preserved across trusted stripping.
 * POSIX-BRE `.nostrip` normalization for Pkgfile definitions.
 * Deterministic, hardlink-safe manual-page compression and symlink
@@ -227,10 +236,12 @@ Implemented
 * libpkgimage-based semantic archive comparison, including magic-based
   ar detection and timestamp normalization, and pkgmk differential corpus
   runner.
+* Shell-compatible Pkgfile source-word expansion and framed helper
+  records.
 * Ordered real-package manifests with isolated shared source caches and
   collection-relative sibling local sources.
-* Per-case build, artifact-inspection, instability, and semantic failure
-  classification with retained diagnostic evidence.
+* Per-case preparation, build, artifact-inspection, instability, and
+  semantic failure classification with retained diagnostic evidence.
 * Same-path sequential pkgmk/libpkgbuild parity execution with a shared
   private TMPDIR.
 * On-demand same-path repeat builds and nondeterministic-output
