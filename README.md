@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.8.6
+LIBPKGBUILD 0.8.7
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
