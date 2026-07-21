@@ -18,7 +18,6 @@
 #include <fstream>
 #include <grp.h>
 #include <iostream>
-#include <limits>
 #include <map>
 #include <optional>
 #include <pwd.h>
@@ -61,6 +60,8 @@ struct Options {
     std::optional<std::filesystem::path> manifest;
     std::optional<std::filesystem::path> report_file;
     std::filesystem::path work_base;
+    pkgbuild::ArchiveSpec archive;
+    pkgbuild::TransformationPolicy transformations;
     std::size_t report_tail{40};
     std::size_t report_details{12};
     bool download{false};
@@ -86,6 +87,10 @@ struct Options {
            << "  --strip FILE           strip executable path\n"
            << "  --build-user USER      non-root identity for root callers\n"
            << "  --config FILE          legacy pkgmk baseline configuration\n"
+           << "  --archive-format FMT   candidate gnutar, pax, ustar, or v7\n"
+           << "  --compression MODE    candidate gz, bz2, xz, lz, or zst\n"
+           << "  --no-strip            disable candidate binary stripping\n"
+           << "  --no-compress-manpages  disable candidate man-page compression\n"
            << "  --manifest FILE        read package directories from FILE\n"
            << "  --work-dir DIR         workspace base\n"
            << "  --report FILE          copy the human report to FILE\n"
@@ -148,6 +153,16 @@ Options parse_options(int argc, char** argv)
             options.build_user = require_argument(i, argc, argv);
         } else if (option == "--config") {
             options.config_file = require_argument(i, argc, argv);
+        } else if (option == "--archive-format") {
+            options.archive.format = pkgbuild::archive_format_from_string(
+                require_argument(i, argc, argv));
+        } else if (option == "--compression") {
+            options.archive.compression = pkgbuild::compression_from_string(
+                require_argument(i, argc, argv));
+        } else if (option == "--no-strip") {
+            options.transformations.strip_binaries = false;
+        } else if (option == "--no-compress-manpages") {
+            options.transformations.compress_manpages = false;
         } else if (option == "--manifest") {
             options.manifest = require_argument(i, argc, argv);
         } else if (option == "--work-dir") {
@@ -319,136 +334,6 @@ void copy_recipe(const std::filesystem::path& source,
         std::filesystem::copy_options::recursive |
             std::filesystem::copy_options::copy_symlinks |
             std::filesystem::copy_options::overwrite_existing);
-}
-
-std::vector<std::string> split_nul_fields(const std::string& data)
-{
-    std::vector<std::string> result;
-    std::size_t begin = 0;
-    while (begin != data.size()) {
-        const auto end = data.find('\0', begin);
-        if (end == std::string::npos)
-            throw std::runtime_error(
-                "Pkgfile helper returned an unterminated definition field");
-        result.emplace_back(data.substr(begin, end - begin));
-        begin = end + 1;
-    }
-    return result;
-}
-
-std::size_t inspected_source_count(const std::string& value)
-{
-    std::size_t result = 0;
-    const auto parsed = std::from_chars(
-        value.data(), value.data() + value.size(), result);
-    if (parsed.ec != std::errc{} ||
-        parsed.ptr != value.data() + value.size())
-        throw std::runtime_error(
-            "Pkgfile helper returned an invalid source count");
-    return result;
-}
-
-std::vector<pkgbuild::Source> inspect_sources(
-    const Options& options,
-    const pkgbuild::ProcessExecutor& executor,
-    const std::optional<pkgbuild::BuildIdentity>& identity,
-    const std::map<std::string, std::string>& environment,
-    const std::filesystem::path& recipe,
-    const std::filesystem::path& config,
-    const std::filesystem::path& sources,
-    const std::filesystem::path& packages,
-    const std::filesystem::path& work)
-{
-    const auto result = executor.execute(pkgbuild::ProcessRequest{
-        options.helper,
-        {
-            "inspect",
-            std::filesystem::absolute(recipe).string(),
-            std::filesystem::absolute(config).string(),
-            std::filesystem::absolute(sources).string(),
-            std::filesystem::absolute(packages).string(),
-            std::filesystem::absolute(work).string(),
-            "gnutar",
-            "gz",
-        },
-        recipe,
-        environment,
-        identity,
-        0022,
-        true,
-        false,
-    });
-    if (!result.ok())
-        throw std::runtime_error(
-            "Pkgfile source inspection failed with status " +
-            std::to_string(result.exit_status));
-
-    const auto fields = split_nul_fields(result.stdout_data);
-    if (fields.size() < 8 || fields[0] != "pkgfile-helper/1")
-        throw std::runtime_error(
-            "Pkgfile helper returned an unsupported definition record");
-    const auto count = inspected_source_count(fields[7]);
-    if (count > std::numeric_limits<std::size_t>::max() - 8 ||
-        fields.size() != 8 + count)
-        throw std::runtime_error(
-            "Pkgfile helper returned an inconsistent source record");
-
-    std::vector<pkgbuild::Source> result_sources;
-    result_sources.reserve(count);
-    for (std::size_t index = 0; index != count; ++index)
-        result_sources.push_back(pkgbuild::parse_source(fields[8 + index]));
-    return result_sources;
-}
-
-bool path_within(const std::filesystem::path& root,
-                 const std::filesystem::path& path)
-{
-    const auto relative = path.lexically_relative(root);
-    if (relative.empty() || relative == ".")
-        return path == root;
-    return *relative.begin() != "..";
-}
-
-void copy_local_sources(
-    const std::filesystem::path& source_recipe,
-    const std::filesystem::path& staged_recipe,
-    const std::vector<pkgbuild::Source>& sources)
-{
-    const auto source_collection = std::filesystem::weakly_canonical(
-        std::filesystem::absolute(source_recipe.parent_path()));
-    const auto staged_collection = staged_recipe.parent_path();
-
-    for (const auto& source : sources) {
-        if (source.uri)
-            continue;
-        if (source.local_name.empty() || source.local_name.is_absolute())
-            throw std::runtime_error(
-                "local source escapes corpus collection: " +
-                source.declaration);
-
-        const auto declared =
-            (source_recipe / source.local_name).lexically_normal();
-        const auto relative = declared.lexically_relative(source_collection);
-        if (relative.empty() || *relative.begin() == "..")
-            throw std::runtime_error(
-                "local source escapes corpus collection: " +
-                source.declaration);
-
-        const auto resolved = std::filesystem::weakly_canonical(declared);
-        if (!path_within(source_collection, resolved))
-            throw std::runtime_error(
-                "local source resolves outside corpus collection: " +
-                source.declaration);
-        if (!std::filesystem::is_regular_file(resolved))
-            throw std::runtime_error(
-                "local source is not a regular file: " + source.declaration);
-
-        const auto destination = staged_collection / relative;
-        std::filesystem::create_directories(destination.parent_path());
-        std::filesystem::copy_file(
-            resolved, destination,
-            std::filesystem::copy_options::overwrite_existing);
-    }
 }
 
 void change_owner(const std::filesystem::path& path,
@@ -789,6 +674,14 @@ void write_campaign_report(
     output << "legacy-config: "
            << (options.config_file ? options.config_file->string() : "(none)")
            << '\n'
+           << "candidate-archive: "
+           << pkgbuild::to_string(options.archive.format) << '/'
+           << pkgbuild::to_string(options.archive.compression) << '\n'
+           << "candidate-strip: "
+           << (options.transformations.strip_binaries ? "yes" : "no") << '\n'
+           << "candidate-compress-manpages: "
+           << (options.transformations.compress_manpages ? "yes" : "no")
+           << '\n'
            << "pkgmk: " << options.pkgmk.string() << '\n'
            << "pkgbuild: " << options.pkgbuild.string() << '\n'
            << "build-user: "
@@ -867,7 +760,8 @@ void copy_campaign_report(const std::filesystem::path& source,
         source, destination, std::filesystem::copy_options::overwrite_existing);
 }
 
-std::filesystem::path find_package(const std::filesystem::path& directory)
+std::filesystem::path find_legacy_package(
+    const std::filesystem::path& directory)
 {
     std::vector<std::filesystem::path> packages;
     for (const auto& item : std::filesystem::directory_iterator(directory)) {
@@ -883,10 +777,62 @@ std::filesystem::path find_package(const std::filesystem::path& directory)
     return std::filesystem::absolute(packages.front());
 }
 
-std::filesystem::path move_package(const std::filesystem::path& source,
-                                   const std::filesystem::path& destination)
+std::filesystem::path move_legacy_package(
+    const std::filesystem::path& source,
+    const std::filesystem::path& destination)
 {
-    const auto package = find_package(source);
+    const auto package = find_legacy_package(source);
+    std::filesystem::create_directories(destination);
+    const auto target = destination / package.filename();
+    if (std::filesystem::exists(target))
+        throw std::runtime_error("duplicate retained package: " +
+                                 target.string());
+    std::filesystem::rename(package, target);
+    return std::filesystem::absolute(target);
+}
+
+std::filesystem::path read_candidate_package(
+    const std::filesystem::path& receipt,
+    const std::filesystem::path& package_directory)
+{
+    std::ifstream input(receipt);
+    if (!input)
+        throw std::runtime_error("candidate did not write package-path output: " +
+                                 receipt.string());
+
+    std::string value;
+    if (!std::getline(input, value) || value.empty())
+        throw std::runtime_error("candidate package-path output is empty");
+    std::string extra;
+    if (std::getline(input, extra))
+        throw std::runtime_error(
+            "candidate package-path output contains multiple records");
+
+    std::filesystem::path package(value);
+    if (!package.is_absolute())
+        throw std::runtime_error(
+            "candidate package-path output is not absolute: " + value);
+    package = package.lexically_normal();
+
+    const auto expected_parent = std::filesystem::weakly_canonical(
+        std::filesystem::absolute(package_directory));
+    const auto observed_parent = std::filesystem::weakly_canonical(
+        package.parent_path());
+    if (observed_parent != expected_parent)
+        throw std::runtime_error(
+            "candidate artifact escaped package output directory: " +
+            package.string());
+    const auto status = std::filesystem::symlink_status(package);
+    if (!std::filesystem::is_regular_file(status))
+        throw std::runtime_error(
+            "candidate artifact is not a regular file: " + package.string());
+    return package;
+}
+
+std::filesystem::path move_exact_package(
+    const std::filesystem::path& package,
+    const std::filesystem::path& destination)
+{
     std::filesystem::create_directories(destination);
     const auto target = destination / package.filename();
     if (std::filesystem::exists(target))
@@ -1108,17 +1054,29 @@ BuildAttempt run_candidate_attempt(
     std::optional<std::filesystem::path> exact_workspace = std::nullopt)
 {
     std::filesystem::create_directories(evidence / "packages");
+    const auto package_path_output =
+        std::filesystem::absolute(packages / ".pkgbuild-package-path");
+    std::filesystem::remove(package_path_output);
     std::vector<std::string> arguments = {
         "--source-dir", sources.string(),
         "--package-dir", packages.string(),
         "--work-dir", work_base.string(),
         "--tmp-dir", temporary.string(),
+        "--archive-format", std::string(pkgbuild::to_string(
+            options.archive.format)),
+        "--compression", std::string(pkgbuild::to_string(
+            options.archive.compression)),
         "--helper", options.helper.string(),
         "--scanner", options.scanner.string(),
         "--fakeroot", options.fakeroot.string(),
         "--strip", options.strip.string(),
+        "--write-package-path", package_path_output.string(),
         "--keep-work",
     };
+    if (!options.transformations.strip_binaries)
+        arguments.push_back("--no-strip");
+    if (!options.transformations.compress_manpages)
+        arguments.push_back("--no-compress-manpages");
     if (exact_workspace) {
         arguments.push_back("--workspace-dir");
         arguments.push_back(exact_workspace->string());
@@ -1150,7 +1108,13 @@ BuildAttempt run_candidate_attempt(
                             AttemptFailure::build};
 
     try {
-        const auto package = move_package(packages, evidence / "packages");
+        const auto produced = read_candidate_package(
+            package_path_output, packages);
+        write_text(evidence / "package.path", produced.string() + "\n");
+        std::filesystem::remove(package_path_output);
+        const auto package = move_exact_package(
+            produced,
+            evidence / "packages");
         validate_archive(package);
         const auto workspace = find_private_workspace(work_base);
         write_text(evidence / "workspace.txt", workspace.string() + "\n");
@@ -1219,7 +1183,8 @@ BuildAttempt run_legacy_attempt(
                             AttemptFailure::build};
 
     try {
-        const auto package = move_package(packages, evidence / "packages");
+        const auto package = move_legacy_package(
+            packages, evidence / "packages");
         validate_archive(package);
         write_text(evidence / "workspace.txt",
                    private_workspace.string() + "\n");
@@ -1278,11 +1243,7 @@ CaseResult run_case(const Options& options,
         std::filesystem::create_directories(temporary);
         write_build_config(config, options.config_file, sources, packages,
                            work_base);
-        const auto declared_sources = inspect_sources(
-            options, executor, identity, environment, corpus_case, config,
-            sources, packages, work_base);
         copy_recipe(corpus_case, recipe);
-        copy_local_sources(corpus_case, recipe, declared_sources);
         assign_tree(root, identity);
     } catch (const std::exception& error) {
         return failed_case(

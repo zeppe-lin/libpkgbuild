@@ -10,6 +10,11 @@ package_dir=
 work_base=
 workspace_dir=
 tmp_dir=
+package_path_output=
+archive_format=
+compression=
+strip_binaries=yes
+compress_manpages=yes
 download=no
 recipe=
 while [ "$#" -gt 0 ]; do
@@ -29,6 +34,26 @@ while [ "$#" -gt 0 ]; do
     --tmp-dir)
         tmp_dir=$2
         shift 2
+        ;;
+    --write-package-path)
+        package_path_output=$2
+        shift 2
+        ;;
+    --archive-format)
+        archive_format=$2
+        shift 2
+        ;;
+    --compression)
+        compression=$2
+        shift 2
+        ;;
+    --no-strip)
+        strip_binaries=no
+        shift
+        ;;
+    --no-compress-manpages)
+        compress_manpages=no
+        shift
         ;;
     --source-dir|--helper|--scanner|--fakeroot|--strip)
         shift 2
@@ -59,15 +84,16 @@ if [ -f "$recipe/require-download" ] && [ "$download" != yes ]; then
     echo "fake-pkgbuild: download mode was not forwarded" >&2
     exit 2
 fi
-if [ -f "$recipe/require-sibling-source" ] &&
-   [ ! -f "$recipe/../shared/payload.txt" ]; then
-    echo "fake-pkgbuild: sibling local source was not staged" >&2
+[ -n "$package_path_output" ] || {
+    echo "fake-pkgbuild: package-path output was not requested" >&2
     exit 2
-fi
-if [ -f "$recipe/require-glob-sources" ] &&
-   { [ ! -f "$recipe/../shared/alpha.patch" ] ||
-     [ ! -f "$recipe/../shared/beta.patch" ]; }; then
-    echo "fake-pkgbuild: sibling source glob was not staged" >&2
+}
+if [ -f "$recipe/require-policy" ] &&
+   { [ "$archive_format" != pax ] ||
+     [ "$compression" != xz ] ||
+     [ "$strip_binaries" != no ] ||
+     [ "$compress_manpages" != no ]; }; then
+    echo "fake-pkgbuild: explicit candidate policy was not forwarded" >&2
     exit 2
 fi
 
@@ -120,3 +146,4 @@ if [ -f "$recipe/candidate-name-different" ]; then
     package=other#$version-$release.pkg.tar.gz
 fi
 tar --owner=0 --group=0 -C "$tree" -czf "$package_dir/$package" usr
+printf '%s\n' "$package_dir/$package" > "$package_path_output"

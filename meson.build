@@ -120,7 +120,7 @@ stage_scanner = executable(
   install_dir: get_option('libexecdir'),
 )
 
-executable(
+pkgbuild_example = executable(
   'pkgbuild-example',
   'tools/pkgbuild-example.cpp',
   include_directories: inc,

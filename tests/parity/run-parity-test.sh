@@ -99,45 +99,13 @@ grep -q 'package-filename' "$identity_report"
 # continuation after failures, and retained evidence.
 manifest_root=$work/manifest
 mkdir -p "$manifest_root/cases"
-for name in pass sibling glob preparation-fail legacy-fail candidate-fail \
-    artifact-fail different many-details candidate-unstable legacy-unstable; do
+for name in pass legacy-fail candidate-fail artifact-fail different \
+    many-details candidate-unstable legacy-unstable; do
     make_case "$manifest_root/cases/$name"
 done
 : > "$manifest_root/cases/pass/require-baseline"
 : > "$manifest_root/cases/pass/require-download"
-mkdir -p "$manifest_root/cases/shared"
-printf '%s\n' 'shared source payload' > \
-    "$manifest_root/cases/shared/payload.txt"
-printf '%s\n' \
-    'name=sibling' \
-    'version=1.0' \
-    'release=1' \
-    'source="../shared/payload.txt"' \
-    'build() { :; }' > "$manifest_root/cases/sibling/Pkgfile"
-printf '%s  %s\n' \
-    "$(md5sum "$manifest_root/cases/shared/payload.txt" | cut -d' ' -f1)" \
-    'payload.txt' > "$manifest_root/cases/sibling/.md5sum"
-: > "$manifest_root/cases/sibling/require-sibling-source"
-printf '%s\n' 'alpha' > "$manifest_root/cases/shared/alpha.patch"
-printf '%s\n' 'beta' > "$manifest_root/cases/shared/beta.patch"
-printf '%s\n' \
-    'name=glob' \
-    'version=1.0' \
-    'release=1' \
-    'source="../shared/*.patch"' \
-    'build() { :; }' > "$manifest_root/cases/glob/Pkgfile"
-printf '%s  %s\n' \
-    "$(md5sum "$manifest_root/cases/shared/alpha.patch" | cut -d' ' -f1)" \
-    'alpha.patch' \
-    "$(md5sum "$manifest_root/cases/shared/beta.patch" | cut -d' ' -f1)" \
-    'beta.patch' > "$manifest_root/cases/glob/.md5sum"
-: > "$manifest_root/cases/glob/require-glob-sources"
-printf '%s\n' \
-    'name=preparation-fail' \
-    'version=1.0' \
-    'release=1' \
-    'source="../missing/*.patch"' \
-    'build() { :; }' > "$manifest_root/cases/preparation-fail/Pkgfile"
+: > "$manifest_root/cases/pass/require-policy"
 : > "$manifest_root/cases/legacy-fail/legacy-build-fail"
 : > "$manifest_root/cases/candidate-fail/candidate-build-fail"
 : > "$manifest_root/cases/artifact-fail/candidate-artifact-fail"
@@ -148,9 +116,6 @@ printf '%s\n' \
 printf '%s\n' \
     '# ordered real-package manifest fixture' \
     'cases/pass' \
-    'cases/sibling' \
-    'cases/glob' \
-    'cases/preparation-fail' \
     'cases/legacy-fail' \
     'cases/candidate-fail' \
     'cases/artifact-fail' \
@@ -170,6 +135,10 @@ manifest_output=$("$runner" \
     --scanner /bin/true \
     --strip /bin/true \
     --config "$manifest_root/pkgmk.conf" \
+    --archive-format pax \
+    --compression xz \
+    --no-strip \
+    --no-compress-manpages \
     --download \
     --manifest "$manifest_root/corpus.list" \
     --work-dir "$work/run-manifest" \
@@ -181,22 +150,18 @@ manifest_status=$?
 set -e
 
 test "$manifest_status" -eq 1
-printf '%s\n' "$manifest_output" | grep -q '^\[1/11\] PASS pass$'
-printf '%s\n' "$manifest_output" | grep -q '^\[2/11\] PASS sibling$'
-printf '%s\n' "$manifest_output" | grep -q '^\[3/11\] PASS glob$'
+printf '%s\n' "$manifest_output" | grep -q '^\[1/8\] PASS pass$'
+printf '%s\n' "$manifest_output" | grep -q '^\[2/8\] LEGACY_BUILD_FAILED legacy-fail$'
+printf '%s\n' "$manifest_output" | grep -q '^\[3/8\] CANDIDATE_BUILD_FAILED candidate-fail$'
+printf '%s\n' "$manifest_output" | grep -q '^\[4/8\] ARTIFACT_INSPECTION_FAILED artifact-fail$'
+printf '%s\n' "$manifest_output" | grep -q '^\[5/8\] SEMANTIC_MISMATCH different$'
+printf '%s\n' "$manifest_output" | grep -q '^\[6/8\] SEMANTIC_MISMATCH many-details$'
 printf '%s\n' "$manifest_output" | grep -q \
-    '^\[4/11\] CASE_PREPARATION_FAILED preparation-fail$'
-printf '%s\n' "$manifest_output" | grep -q '^\[5/11\] LEGACY_BUILD_FAILED legacy-fail$'
-printf '%s\n' "$manifest_output" | grep -q '^\[6/11\] CANDIDATE_BUILD_FAILED candidate-fail$'
-printf '%s\n' "$manifest_output" | grep -q '^\[7/11\] ARTIFACT_INSPECTION_FAILED artifact-fail$'
-printf '%s\n' "$manifest_output" | grep -q '^\[8/11\] SEMANTIC_MISMATCH different$'
-printf '%s\n' "$manifest_output" | grep -q '^\[9/11\] SEMANTIC_MISMATCH many-details$'
+    '^\[7/8\] NONDETERMINISTIC_OUTPUT candidate-unstable$'
 printf '%s\n' "$manifest_output" | grep -q \
-    '^\[10/11\] NONDETERMINISTIC_OUTPUT candidate-unstable$'
+    '^\[8/8\] NONDETERMINISTIC_OUTPUT legacy-unstable$'
 printf '%s\n' "$manifest_output" | grep -q \
-    '^\[11/11\] NONDETERMINISTIC_OUTPUT legacy-unstable$'
-printf '%s\n' "$manifest_output" | grep -q \
-    '^SUMMARY pass=3 case-preparation-failed=1 legacy-build-failed=1 candidate-build-failed=1 artifact-inspection-failed=1 nondeterministic-output=2 semantic-mismatch=2$'
+    '^SUMMARY pass=1 case-preparation-failed=0 legacy-build-failed=1 candidate-build-failed=1 artifact-inspection-failed=1 nondeterministic-output=2 semantic-mismatch=2$'
 ! printf '%s\n' "$manifest_output" | grep -q 'candidate fixture stdout'
 report=$(printf '%s\n' "$manifest_output" | sed -n 's/^REPORT //p')
 campaign_report=$(printf '%s\n' "$manifest_output" | sed -n 's/^CAMPAIGN_REPORT //p')
@@ -209,18 +174,10 @@ cmp "$report" "$campaign_report"
 failed_work=$(printf '%s\n' "$manifest_output" | sed -n 's/^FAILED_WORK //p')
 test -n "$failed_work"
 test ! -e "$failed_work/pass"
-test ! -e "$failed_work/sibling"
-test ! -e "$failed_work/glob"
-for name in preparation-fail legacy-fail candidate-fail artifact-fail \
+for name in legacy-fail candidate-fail artifact-fail \
     different many-details candidate-unstable legacy-unstable; do
     test -f "$failed_work/$name/comparison.txt"
 done
-test ! -e "$failed_work/preparation-fail/pkgmk"
-test ! -e "$failed_work/preparation-fail/libpkgbuild"
-grep -q '^status: CASE_PREPARATION_FAILED$' \
-    "$failed_work/preparation-fail/comparison.txt"
-grep -q '^detail: setup-error: local source is not a regular file: ../missing/\*.patch$' \
-    "$failed_work/preparation-fail/comparison.txt"
 test -d "$failed_work/legacy-fail/pkgmk/run-1"
 test -d "$failed_work/legacy-fail/libpkgbuild/run-1"
 test -d "$failed_work/candidate-fail/libpkgbuild/run-1"
@@ -267,8 +224,11 @@ grep -q 'candidate fixture stdout' \
 grep -q 'candidate fixture stderr' \
     "$failed_work/candidate-fail/libpkgbuild/run-1/build.log"
 
-grep -q '^cases: 11$' "$report"
-grep -q '^pass: 3$' "$report"
+grep -q '^cases: 8$' "$report"
+grep -q '^pass: 1$' "$report"
+grep -q '^candidate-archive: pax/xz$' "$report"
+grep -q '^candidate-strip: no$' "$report"
+grep -q '^candidate-compress-manpages: no$' "$report"
 grep -q '^semantic-mismatch: 2$' "$report"
 grep -q '^\[candidate-fail\]$' "$report"
 grep -q '^last 2 lines:$' "$report"
@@ -281,7 +241,7 @@ grep -Eq '^  [1-9][0-9]* additional details omitted$' "$report"
 awk -F '\t' 'NR == 1 && $1 == "index" && $2 == "name" && $3 == "status" && $4 == "source" && $5 == "elapsed_seconds" && $6 == "evidence" { found=1 } END { exit !found }' "$results"
 awk -F '\t' '$1 == 1 && $2 == "pass" && $3 == "PASS" { found=1 } END { exit !found }' "$results"
 awk -F '\t' '$2 == "candidate-fail" && $3 == "CANDIDATE_BUILD_FAILED" && $6 == "failed/candidate-fail" { found=1 } END { exit !found }' "$results"
-test "$(wc -l < "$results")" -eq 12
+test "$(wc -l < "$results")" -eq 9
 
 for engine in pkgmk libpkgbuild; do
     for run in run-1 run-2; do
@@ -290,6 +250,8 @@ for engine in pkgmk libpkgbuild; do
         test -d "$failed_work/different/$engine/$run/packages"
     done
 done
+test -f "$failed_work/different/libpkgbuild/run-1/package.path"
+test -f "$failed_work/different/libpkgbuild/run-2/package.path"
 cmp "$failed_work/different/libpkgbuild/run-1/workspace.txt" \
     "$failed_work/different/libpkgbuild/run-2/workspace.txt"
 cmp "$failed_work/different/libpkgbuild/run-1/workspace.txt" \

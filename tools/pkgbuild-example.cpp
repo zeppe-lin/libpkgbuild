@@ -13,6 +13,7 @@
 #include <libpkgsource/pkgfile_backend.h>
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -80,6 +81,7 @@ public:
            << "      --strip FILE         binary stripping program\n"
            << "      --check-footprint    compare captured footprint\n"
            << "      --write-footprint FILE  replace footprint atomically\n"
+           << "      --write-package-path FILE  write exact artifact path\n"
            << "  -h, --help               show this help\n";
     std::exit(status);
 }
@@ -146,6 +148,33 @@ std::string require_argument(int& index, int argc, char** argv)
     return argv[index];
 }
 
+void write_package_path(const std::filesystem::path& receipt,
+                        const std::filesystem::path& package)
+{
+    if (receipt.empty() || !receipt.is_absolute())
+        throw std::runtime_error(
+            "package-path output must be an explicit absolute path");
+
+    const auto parent = receipt.parent_path();
+    if (!parent.empty())
+        std::filesystem::create_directories(parent);
+    auto temporary = receipt;
+    temporary += ".tmp." + std::to_string(static_cast<long long>(getpid()));
+
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        if (!output)
+            throw std::runtime_error("cannot create package-path output: " +
+                                     temporary.string());
+        output << std::filesystem::absolute(package).string() << '\n';
+        if (!output)
+            throw std::runtime_error("cannot write package-path output: " +
+                                     temporary.string());
+    }
+
+    std::filesystem::rename(temporary, receipt);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -160,6 +189,7 @@ int main(int argc, char** argv)
         std::optional<std::filesystem::path> work_dir;
         std::optional<std::filesystem::path> workspace_directory;
         std::optional<std::filesystem::path> temporary_directory;
+        std::optional<std::filesystem::path> package_path_output;
         std::filesystem::path helper = PKGBUILD_PKGFILE_HELPER;
         std::filesystem::path scanner = PKGBUILD_STAGE_SCANNER;
         std::filesystem::path fakeroot = PKGBUILD_FAKEROOT;
@@ -211,6 +241,9 @@ int main(int argc, char** argv)
                 policy.footprint.action = pkgbuild::FootprintAction::write;
                 policy.footprint.manifest =
                     std::filesystem::absolute(require_argument(i, argc, argv));
+            } else if (option == "--write-package-path") {
+                package_path_output = std::filesystem::absolute(
+                    require_argument(i, argc, argv));
             } else if (option == "-h" || option == "--help") {
                 usage(argv[0], 0);
             } else if (!option.empty() && option[0] == '-') {
@@ -289,9 +322,11 @@ int main(int argc, char** argv)
 
         const auto receipt =
             engine.build(definition, build_environment, events);
+        if (package_path_output)
+            write_package_path(*package_path_output, receipt.archive.output);
         const auto& built = receipt.definition;
         const auto& package = built.identity();
-        std::cout << "artifact\t" << receipt.archive.output << '\n'
+        std::cout << "artifact\t" << receipt.archive.output.string() << '\n'
                   << "source-snapshot\t"
                   << pkgsource::to_string(
                          built.source_snapshot_fingerprint().algorithm())

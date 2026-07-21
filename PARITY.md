@@ -55,17 +55,20 @@ and 2 for invalid input or an inspection failure.
 Corpus runner
 -------------
 
-`pkgbuild-parity` copies every package into one canonical recipe
+`pkgbuild-parity` copies every package source into one canonical recipe
 directory without changing its basename.  The basename must match the
-Pkgfile `name`, as required by both builders.  Declared source words are
-expanded by the private POSIX shell worker before the build, matching
-legacy field splitting and pathname expansion.  References to sibling
-package files, such as `../glibc/patch`, are copied into the canonical
-recipe collection
-with the same relative topology.  Only declared files are copied.  Paths
-that escape or resolve outside the source collection are rejected.  The
-exact package filename must also match, covering package name, version,
-release, and compression identity.
+Pkgfile `name`, as required by both builders.  The harness does not inspect
+the Pkgfile or expand source words before invoking the candidate.
+`libpkgsource` is the sole authority for candidate source capture and
+normalization, including recipe-local inputs.  A package source is therefore
+self-contained; references outside its captured directory are not staged by
+the harness.
+
+The candidate writes the exact artifact pathname selected by its build
+receipt to a private one-record path output.  The harness consumes that
+record and never searches the candidate package directory or reconstructs
+artifact identity from naming rules.  The legacy pkgmk side still requires a
+single-package directory scan because it has no equivalent receipt.
 
 The candidate runs first and allocates its normal private
 `.pkgbuild.XXXXXX` workspace.  Its archive is moved aside, the workspace
@@ -88,7 +91,9 @@ The bundled synthetic corpus can be passed as a directory:
 pkgbuild-parity [options] ./tests/parity/corpus
 ```
 
-A real campaign uses `--manifest FILE`.  Each non-empty line is one
+A single complete collection can be passed as the corpus directory; every
+immediate child containing a Pkgfile becomes one case.  A multi-collection
+or deliberately ordered campaign uses `--manifest FILE`.  Each non-empty line is one
 package directory.  Lines whose first non-whitespace character is `#`
 are comments.  Relative paths are resolved against the manifest's
 parent directory.  Manifest order is preserved.  Duplicate resolved
@@ -118,10 +123,36 @@ pkgbuild-parity \
     --strip /usr/bin/strip \
     --build-user pkgbuild \
     --config /etc/pkgmk.conf \
+    --archive-format gnutar \
+    --compression gz \
     --download \
     --manifest "$PWD/parity-corpus.list" \
     --work-dir "$PWD/build/parity-work" \
     --report "$PWD/build/parity-reports/pkgsrc-core.txt"
+```
+
+Candidate archive and transformation policy is explicit.  Pass
+`--archive-format`, `--compression`, `--no-strip`, and
+`--no-compress-manpages` as needed to match the policy selected by the
+legacy baseline configuration.  The harness does not source pkgmk
+configuration into the candidate process.
+
+To qualify one entire collection without a manifest, replace the
+`--manifest` option with the collection root:
+
+```
+    /usr/src/pkgsrc-core
+```
+
+To qualify several collections in maintained order, generate one manifest:
+
+```
+find /usr/src/pkgsrc-core \
+     /usr/src/pkgsrc-system \
+     /usr/src/pkgsrc-xorg \
+     /usr/src/pkgsrc-desktop \
+     -mindepth 2 -maxdepth 2 -type f -name Pkgfile -printf '%h\n' \
+    > parity-corpus.list
 ```
 
 A root caller must select an explicit non-root identity.  An ordinary
@@ -143,9 +174,10 @@ Compact mode prints one indexed start and result line per package:
 The default keeps long compiler output out of interactive SSH sessions while
 still retaining it as evidence.
 
-A package-level failure does not stop the remaining manifest.  Pkgfile
-inspection, canonical recipe staging, declared local-source staging, and
-other per-case setup errors are reported as `CASE_PREPARATION_FAILED`.
+A package-level failure does not stop the remaining manifest.  Canonical
+recipe staging and other harness-side setup errors are reported as
+`CASE_PREPARATION_FAILED`.  Candidate source inspection belongs to the
+candidate process and is reported as a candidate build failure.
 Builder executor errors and nonzero exits are reported as legacy or
 candidate build failures.  A successful builder whose package cannot be
 moved, located, or inspected is reported as `ARTIFACT_INSPECTION_FAILED`, with
@@ -194,14 +226,13 @@ moved beneath the private run workspace:
 ```
 <work-base>/.pkgbuild-parity.XXXXXX/failed/<package>/
     recipe/<package>/
-    recipe/<referenced-sibling>/...  # when required
     pkgmk/
         run-1/{packages/,build.log,workspace.txt}
         run-2/{packages/,build.log,workspace.txt}  # when reached
         repeat-comparison.txt                     # when reached
     libpkgbuild/
-        run-1/{packages/,build.log,workspace.txt}
-        run-2/{packages/,build.log,workspace.txt}  # on mismatch
+        run-1/{packages/,build.log,workspace.txt,package.path}
+        run-2/{packages/,build.log,workspace.txt,package.path}  # on mismatch
         repeat-comparison.txt                      # on mismatch
     packages/
     sources/

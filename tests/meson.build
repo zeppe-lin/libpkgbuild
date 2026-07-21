@@ -214,3 +214,16 @@ definition_engine_test = executable(
 )
 
 test('sealed build definition engine', definition_engine_test)
+
+reference_tool_test = find_program('reference-tool-test.sh')
+test(
+  'reference tool realization',
+  reference_tool_test,
+  args: [
+    pkgbuild_example,
+    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    stage_scanner,
+    fakeroot_program.full_path(),
+    strip_program.full_path(),
+  ],
+)
