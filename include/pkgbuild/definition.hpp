@@ -102,6 +102,22 @@ private:
     AcceptedBuildPolicy policy_;
 };
 
+/*! \brief Complete result of realizing one immutable build definition. */
+struct BuildReceipt {
+    BuildDefinition definition;
+    std::filesystem::path package;
+    std::vector<DownloadReceipt> downloads;
+    std::vector<VerificationReceipt> verifications;
+    std::vector<TransformationReceipt> transformations;
+    std::optional<FootprintReceipt> footprint;
+    ArchiveReceipt archive;
+    std::optional<std::filesystem::path> work_directory;
+};
+
+/*! \brief Return the artifact filename selected by accepted policy. */
+[[nodiscard]] std::filesystem::path package_filename(
+    const BuildDefinition& definition);
+
 /*! \brief Derive one build-engine contract without reopening source paths.
  *
  * \throws Error when the snapshot contains a source fact that this version of

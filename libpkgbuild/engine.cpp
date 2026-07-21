@@ -28,6 +28,28 @@ bool is_root_path(const std::filesystem::path& path)
     return path == path.root_path();
 }
 
+bool path_within(const std::filesystem::path& root,
+                 const std::filesystem::path& candidate)
+{
+    auto expected = root.begin();
+    auto observed = candidate.begin();
+    for (; expected != root.end(); ++expected, ++observed) {
+        if (observed == candidate.end() || *observed != *expected)
+            return false;
+    }
+    return true;
+}
+
+void reject_snapshot_target(const std::filesystem::path& snapshot_root,
+                            const std::filesystem::path& candidate,
+                            const char* description)
+{
+    if (path_within(snapshot_root, normalized(candidate)))
+        throw Error(ErrorCode::invalid_configuration,
+                    std::string(description) +
+                        " must not be inside the source snapshot");
+}
+
 void reject_equal_path(const std::filesystem::path& work_base,
                        const std::filesystem::path& other,
                        const char* description)
@@ -161,6 +183,37 @@ private:
     std::filesystem::path path_;
     bool keep_;
 };
+
+void materialize_snapshot(const pkgsource::source_snapshot& snapshot,
+                          const std::filesystem::path& destination)
+{
+    if (std::filesystem::exists(destination))
+        throw Error(ErrorCode::filesystem_failed,
+                    "snapshot materialization already exists: " +
+                        destination.string());
+
+    std::filesystem::create_directory(destination);
+    const auto source = snapshot.native_root();
+    for (const auto& entry : std::filesystem::directory_iterator(source)) {
+        std::filesystem::copy(
+            entry.path(), destination / entry.path().filename(),
+            std::filesystem::copy_options::recursive |
+                std::filesystem::copy_options::copy_symlinks);
+    }
+    if (chmod(destination.c_str(), 0500) != 0)
+        throw Error(ErrorCode::filesystem_failed,
+                    "cannot seal materialized recipe root: " +
+                        std::string(std::strerror(errno)));
+}
+
+std::filesystem::path source_path(const BuildSource& source,
+                                  const BuildPaths& paths)
+{
+    if (source.captured)
+        return source.captured->native_path();
+    return std::filesystem::absolute(paths.source_dir /
+                                     source.input.local_name);
+}
 
 std::filesystem::path local_source_path(const Source& source,
                                         const BuildPaths& paths)
@@ -338,16 +391,19 @@ void seal_workspace(const std::filesystem::path& root,
 PackageDefinition Engine::inspect(const DefinitionRequest& request,
                                   EventSink& events) const
 {
+    if (legacy_definitions_ == nullptr)
+        throw Error(ErrorCode::invalid_configuration,
+                    "mutable package-source inspection is not configured");
     validate_execution_policy(request.execution);
     if (request.execution.temporary_directory)
         prepare_temporary_directory(
             execution_temporary_directory(request.execution, request.paths),
             request.execution.identity);
-    return services_.definitions.load(request, events);
+    return legacy_definitions_->load(request, events);
 }
 
-BuildReceipt Engine::build(const BuildRequest& request,
-                           EventSink& events) const
+LegacyBuildReceipt Engine::build(const BuildRequest& request,
+                                 EventSink& events) const
 {
     validate_execution_policy(request.definition.execution);
 
@@ -376,7 +432,7 @@ BuildReceipt Engine::build(const BuildRequest& request,
     const auto source_root = std::filesystem::absolute(paths.work_dir / "src");
     const auto package_root = std::filesystem::absolute(paths.work_dir / "pkg");
 
-    BuildReceipt receipt;
+    LegacyBuildReceipt receipt;
     receipt.definition = definition;
     if (request.keep_work)
         receipt.work_directory = workspace.path();
@@ -482,6 +538,164 @@ BuildReceipt Engine::build(const BuildRequest& request,
 
     emit(events, EventKind::info,
          "Built package '" + receipt.package.string() + "'");
+    return receipt;
+}
+
+BuildReceipt Engine::build(const BuildDefinition& definition,
+                           const BuildEnvironment& environment,
+                           EventSink& events) const
+{
+    validate_execution_policy(environment.execution);
+    if (environment.source_directory.empty() ||
+        environment.package_directory.empty() ||
+        environment.work_directory.empty())
+        throw Error(ErrorCode::invalid_configuration,
+                    "build environment directories must be explicit");
+
+    BuildPaths configured_paths{
+        definition.snapshot().native_root(),
+        std::filesystem::absolute(environment.source_directory),
+        std::filesystem::absolute(environment.package_directory),
+        std::filesystem::absolute(environment.work_directory),
+    };
+    const auto snapshot_root = normalized(configured_paths.recipe_dir);
+    reject_snapshot_target(snapshot_root, configured_paths.source_dir,
+                           "source cache");
+    reject_snapshot_target(snapshot_root, configured_paths.package_dir,
+                           "package output directory");
+    reject_snapshot_target(snapshot_root, configured_paths.work_dir,
+                           "work directory");
+    std::filesystem::create_directories(configured_paths.source_dir);
+    std::filesystem::create_directories(configured_paths.package_dir);
+
+    PrivateWorkspace workspace(configured_paths, environment.keep_work,
+                               environment.workspace_directory);
+    BuildPaths paths = configured_paths;
+    paths.work_dir = workspace.path();
+    paths.recipe_dir = paths.work_dir / "recipe";
+
+    materialize_snapshot(definition.snapshot(), paths.recipe_dir);
+    std::filesystem::create_directories(paths.work_dir / "src");
+    std::filesystem::create_directories(paths.work_dir / "pkg");
+    prepare_temporary_directory(
+        execution_temporary_directory(environment.execution, paths),
+        environment.execution.identity);
+    assign_workspace(paths.work_dir, environment.execution.identity);
+    prepare_metadata_directory(paths.work_dir,
+                               environment.execution.identity);
+
+    const auto source_root = std::filesystem::absolute(paths.work_dir / "src");
+    const auto package_root = std::filesystem::absolute(paths.work_dir / "pkg");
+
+    BuildReceipt receipt{definition};
+    if (environment.keep_work)
+        receipt.work_directory = workspace.path();
+
+    for (const auto& declared : definition.sources()) {
+        const auto& source = declared.input;
+        auto local = source_path(declared, paths);
+        if (!declared.captured && !std::filesystem::exists(local)) {
+            if (!source.uri)
+                throw Error(ErrorCode::invalid_definition,
+                            "uncaptured source has no remote locator: " +
+                                source.declaration);
+            if (!environment.download_missing)
+                throw Error(ErrorCode::missing_source,
+                            "source not found; enable downloading: " +
+                                local.string());
+            receipt.downloads.push_back(
+                services_.downloader.fetch(
+                    DownloadRequest{*source.uri, local}, events));
+        }
+
+        if (source.digests.empty())
+            throw Error(ErrorCode::invalid_definition,
+                        "source has no declared checksum: " +
+                            source.declaration);
+
+        auto verified =
+            services_.verifier.verify(local, source.digests, events);
+        receipt.verifications.insert(receipt.verifications.end(),
+                                     verified.receipts().begin(),
+                                     verified.receipts().end());
+
+        if (source_is_archive(source.local_name)) {
+            services_.extractor.extract(
+                ExtractRequest{verified, source_root}, events);
+        } else {
+            const auto destination = source_root / source.local_name.filename();
+            emit(events, EventKind::info,
+                 "Copying verified source '" + local.string() + "'");
+            copy_verified_source(verified, destination);
+        }
+        services_.verifier.revalidate(verified, events);
+    }
+
+    assign_workspace(paths.work_dir, environment.execution.identity);
+    auto staged = services_.recipes.run_captured(
+        CapturedRecipeRequest{definition, paths, source_root, package_root,
+                              environment.execution},
+        events);
+    if (staged.entries.empty())
+        throw Error(ErrorCode::recipe_failed,
+                    "build recipe produced an empty package root");
+
+    auto transformation = services_.transformer.transform_definition(
+        DefinitionTransformRequest{staged, definition,
+                                   environment.execution},
+        events);
+    if (!transformation.changes.empty())
+        receipt.transformations.push_back(std::move(transformation));
+    validate_staged_package(staged);
+
+    const auto& footprint_policy = definition.policy().footprint;
+    if (footprint_policy.action != FootprintAction::ignore) {
+        FootprintReceipt footprint;
+        footprint.actual = footprint_from_staged_package(staged);
+
+        if (footprint_policy.action == FootprintAction::compare) {
+            if (!definition.footprint())
+                throw Error(ErrorCode::invalid_definition,
+                            "captured footprint disappeared from definition");
+            footprint.manifest =
+                definition.footprint()->file().native_path();
+            emit(events, EventKind::info,
+                 "Checking captured footprint '" +
+                     footprint.manifest.string() + "'");
+            footprint.expected = read_footprint(footprint.manifest);
+            footprint.difference = compare_footprints(
+                *footprint.expected, footprint.actual);
+            if (!footprint.difference.empty())
+                throw FootprintMismatch(footprint.manifest,
+                                        footprint.difference);
+        } else if (footprint_policy.action == FootprintAction::write) {
+            footprint.manifest = *footprint_policy.manifest;
+            emit(events, EventKind::info,
+                 "Writing footprint '" + footprint.manifest.string() + "'");
+            write_footprint(footprint.manifest, footprint.actual);
+            footprint.written = true;
+        }
+        receipt.footprint = std::move(footprint);
+    }
+
+    seal_workspace(paths.work_dir, environment.execution.identity);
+
+    const auto target = std::filesystem::absolute(
+        paths.package_dir / package_filename(definition));
+    if (std::filesystem::exists(target))
+        std::filesystem::remove(target);
+
+    const auto& archive = definition.policy().archive;
+    if (!services_.packages.supports(archive))
+        throw Error(ErrorCode::invalid_configuration,
+                    "package writer does not support requested archive");
+    receipt.archive = services_.packages.write(
+        PackageWriteRequest{std::move(staged), target, archive}, events);
+    receipt.package = receipt.archive.output;
+
+    emit(events, EventKind::info,
+         "Built package '" + receipt.package.string() + "' from snapshot " +
+             definition.source_snapshot_fingerprint().hex());
     return receipt;
 }
 

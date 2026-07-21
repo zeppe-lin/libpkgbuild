@@ -137,6 +137,16 @@ struct BuildRequest {
     std::optional<std::filesystem::path> workspace_directory;
 };
 
+struct BuildEnvironment {
+    std::filesystem::path source_directory;
+    std::filesystem::path package_directory;
+    std::filesystem::path work_directory;
+    ExecutionPolicy execution;
+    bool download_missing{false};
+    bool keep_work{false};
+    std::optional<std::filesystem::path> workspace_directory;
+};
+
 struct DownloadRequest {
     std::string uri;
     std::filesystem::path destination;
@@ -264,7 +274,8 @@ struct ArchiveReceipt {
     ArchiveSpec archive;
 };
 
-struct BuildReceipt {
+/*! \brief Receipt retained only by the mutable-directory compatibility path. */
+struct LegacyBuildReceipt {
     PackageDefinition definition;
     std::filesystem::path package;
     std::vector<DownloadReceipt> downloads;

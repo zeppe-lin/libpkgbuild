@@ -228,6 +228,13 @@ const AcceptedBuildPolicy& BuildDefinition::policy() const noexcept
     return policy_;
 }
 
+std::filesystem::path package_filename(const BuildDefinition& definition)
+{
+    const auto& identity = definition.identity();
+    return identity.name + "#" + identity.version + "-" + identity.release +
+           package_extension(definition.policy().archive);
+}
+
 BuildDefinition derive_definition(pkgsource::source_snapshot snapshot,
                                   AcceptedBuildPolicy policy)
 {

@@ -205,3 +205,12 @@ source_projection_test = executable(
 )
 
 test('source snapshot projection', source_projection_test)
+
+definition_engine_test = executable(
+  'definition-engine-test',
+  'definition-engine-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('sealed build definition engine', definition_engine_test)
