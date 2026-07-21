@@ -49,6 +49,11 @@ output=$(
         "$recipe"
 )
 
+if find "$root/work" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+    echo "reference tool retained a private workspace" >&2
+    exit 1
+fi
+
 package=$(cat "$root/package.path")
 case $package in
 /*) ;;

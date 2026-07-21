@@ -286,6 +286,8 @@ int main()
                 "reported artifact does not exist");
         require(receipt.verifications.size() == 1,
                 "captured local source was not verified");
+        require(fs::is_empty(temporary.path() / "work"),
+                "discarded sealed workspace survived cleanup");
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "definition-engine: " << error.what() << '\n';

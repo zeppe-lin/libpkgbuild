@@ -6,6 +6,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <dirent.h>
 #include <filesystem>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -90,6 +91,33 @@ std::filesystem::path prepare_work_base(const BuildPaths& paths)
     return base;
 }
 
+void make_workspace_removable(const std::filesystem::path& root) noexcept
+{
+    // Sealed recipe roots and staged directories may be read-only.  Follow
+    // only real directories; symbolic links remain leaf entries for removal.
+    std::vector<std::filesystem::path> directories{root};
+    for (std::size_t index = 0; index != directories.size(); ++index) {
+        const auto directory = directories[index];
+        (void)chmod(directory.c_str(), 0700);
+
+        DIR* stream = opendir(directory.c_str());
+        if (stream == nullptr)
+            continue;
+
+        while (const auto* entry = readdir(stream)) {
+            if (std::strcmp(entry->d_name, ".") == 0 ||
+                std::strcmp(entry->d_name, "..") == 0)
+                continue;
+
+            const auto child = directory / entry->d_name;
+            struct stat status {};
+            if (lstat(child.c_str(), &status) == 0 && S_ISDIR(status.st_mode))
+                directories.push_back(child);
+        }
+        (void)closedir(stream);
+    }
+}
+
 class PrivateWorkspace final {
 public:
     PrivateWorkspace(
@@ -101,6 +129,7 @@ public:
     ~PrivateWorkspace()
     {
         if (!keep_) {
+            make_workspace_removable(path_);
             std::error_code ignored;
             std::filesystem::remove_all(path_, ignored);
         }
