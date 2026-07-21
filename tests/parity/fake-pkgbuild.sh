@@ -10,7 +10,6 @@ package_dir=
 work_base=
 workspace_dir=
 tmp_dir=
-config=
 download=no
 recipe=
 while [ "$#" -gt 0 ]; do
@@ -29,10 +28,6 @@ while [ "$#" -gt 0 ]; do
         ;;
     --tmp-dir)
         tmp_dir=$2
-        shift 2
-        ;;
-    --config)
-        config=$2
         shift 2
         ;;
     --source-dir|--helper|--scanner|--fakeroot|--strip)
@@ -58,15 +53,6 @@ package_name=$(basename "$recipe")
 . "$recipe/Pkgfile"
 if [ "$package_name" != "$name" ]; then
     echo "fake-pkgbuild: recipe basename is not package name" >&2
-    exit 2
-fi
-if [ -n "$config" ]; then
-    # shellcheck disable=SC1090
-    . "$config"
-fi
-if [ -f "$recipe/require-baseline" ] && \
-   [ "${PARITY_BASELINE_MARKER:-}" != yes ]; then
-    echo "fake-pkgbuild: baseline configuration was not sourced" >&2
     exit 2
 fi
 if [ -f "$recipe/require-download" ] && [ "$download" != yes ]; then

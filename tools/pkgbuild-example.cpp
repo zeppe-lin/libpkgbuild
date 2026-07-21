@@ -5,8 +5,12 @@
 #include <pkgbuild/backends/normalize.hpp>
 #include <pkgbuild/backends/pkgfile.hpp>
 #include <pkgbuild/backends/posix.hpp>
+#include <pkgbuild/definition.hpp>
 #include <pkgbuild/engine.hpp>
 #include <pkgbuild/error.hpp>
+
+#include <libpkgsource/error.h>
+#include <libpkgsource/pkgfile_backend.h>
 
 #include <filesystem>
 #include <iostream>
@@ -60,7 +64,10 @@ public:
            << "Options:\n"
            << "  -d, --download           download missing URI sources\n"
            << "  -k, --keep-work          keep the work directory\n"
-           << "  -c, --config FILE        source legacy pkgmk configuration\n"
+           << "      --archive-format FMT gnutar, pax, ustar, or v7\n"
+           << "      --compression MODE   gz, bz2, xz, lz, or zst\n"
+           << "      --no-strip           disable binary stripping\n"
+           << "      --no-compress-manpages  disable man-page compression\n"
            << "      --source-dir DIR     source cache directory\n"
            << "      --package-dir DIR    package output directory\n"
            << "      --work-dir DIR       private workspace base\n"
@@ -71,7 +78,7 @@ public:
            << "      --fakeroot FILE      fakeroot frontend path\n"
            << "      --build-user USER    execute Pkgfile as USER\n"
            << "      --strip FILE         binary stripping program\n"
-           << "      --check-footprint FILE  compare generated footprint\n"
+           << "      --check-footprint    compare captured footprint\n"
            << "      --write-footprint FILE  replace footprint atomically\n"
            << "  -h, --help               show this help\n";
     std::exit(status);
@@ -121,6 +128,17 @@ pkgbuild::BuildIdentity build_identity(const std::string& name)
     };
 }
 
+pkgsource::worker_identity source_identity(
+    const pkgbuild::BuildIdentity& identity)
+{
+    return pkgsource::worker_identity{
+        identity.uid,
+        identity.gid,
+        identity.user,
+        identity.home,
+    };
+}
+
 std::string require_argument(int& index, int argc, char** argv)
 {
     if (++index >= argc)
@@ -137,7 +155,6 @@ int main(int argc, char** argv)
             throw std::runtime_error("cannot activate process locale");
 
         std::filesystem::path recipe_dir = std::filesystem::current_path();
-        std::optional<std::filesystem::path> config_file;
         std::optional<std::filesystem::path> source_dir;
         std::optional<std::filesystem::path> package_dir;
         std::optional<std::filesystem::path> work_dir;
@@ -148,7 +165,7 @@ int main(int argc, char** argv)
         std::filesystem::path fakeroot = PKGBUILD_FAKEROOT;
         std::filesystem::path strip = PKGBUILD_STRIP;
         std::optional<std::string> build_user;
-        pkgbuild::FootprintPolicy footprint;
+        pkgbuild::AcceptedBuildPolicy policy;
         bool download = false;
         bool keep_work = false;
 
@@ -158,8 +175,16 @@ int main(int argc, char** argv)
                 download = true;
             } else if (option == "-k" || option == "--keep-work") {
                 keep_work = true;
-            } else if (option == "-c" || option == "--config") {
-                config_file = require_argument(i, argc, argv);
+            } else if (option == "--archive-format") {
+                policy.archive.format = pkgbuild::archive_format_from_string(
+                    require_argument(i, argc, argv));
+            } else if (option == "--compression") {
+                policy.archive.compression = pkgbuild::compression_from_string(
+                    require_argument(i, argc, argv));
+            } else if (option == "--no-strip") {
+                policy.transformations.strip_binaries = false;
+            } else if (option == "--no-compress-manpages") {
+                policy.transformations.compress_manpages = false;
             } else if (option == "--source-dir") {
                 source_dir = require_argument(i, argc, argv);
             } else if (option == "--package-dir") {
@@ -181,11 +206,11 @@ int main(int argc, char** argv)
             } else if (option == "--strip") {
                 strip = require_argument(i, argc, argv);
             } else if (option == "--check-footprint") {
-                footprint.action = pkgbuild::FootprintAction::compare;
-                footprint.manifest = require_argument(i, argc, argv);
+                policy.footprint.action = pkgbuild::FootprintAction::compare;
             } else if (option == "--write-footprint") {
-                footprint.action = pkgbuild::FootprintAction::write;
-                footprint.manifest = require_argument(i, argc, argv);
+                policy.footprint.action = pkgbuild::FootprintAction::write;
+                policy.footprint.manifest =
+                    std::filesystem::absolute(require_argument(i, argc, argv));
             } else if (option == "-h" || option == "--help") {
                 usage(argv[0], 0);
             } else if (!option.empty() && option[0] == '-') {
@@ -196,23 +221,41 @@ int main(int argc, char** argv)
         }
 
         recipe_dir = std::filesystem::absolute(recipe_dir);
-        pkgbuild::BuildPaths paths{
-            recipe_dir,
-            source_dir ? std::filesystem::absolute(*source_dir) : recipe_dir,
-            package_dir ? std::filesystem::absolute(*package_dir) : recipe_dir,
-            work_dir ? std::filesystem::absolute(*work_dir) : recipe_dir / "work",
-        };
+        const auto source_cache =
+            source_dir ? std::filesystem::absolute(*source_dir) : recipe_dir;
+        const auto package_output =
+            package_dir ? std::filesystem::absolute(*package_dir) : recipe_dir;
+        const auto work_base = work_dir
+            ? std::filesystem::absolute(*work_dir)
+            : recipe_dir / "work";
+
+        std::optional<pkgbuild::BuildIdentity> identity;
+        if (build_user)
+            identity = build_identity(*build_user);
+        const auto environment = selected_environment();
+
+        pkgsource::evaluation_policy evaluation;
+        evaluation.file_creation_mask = 0022;
+        if (identity)
+            evaluation.identity = source_identity(*identity);
+
+        pkgsource::pkgfile_backend source_backend;
+        auto snapshot = source_backend.inspect({
+            pkgsource::source_location(recipe_dir),
+            std::nullopt,
+            std::move(evaluation),
+        });
+        auto definition = pkgbuild::derive_definition(
+            std::move(snapshot), std::move(policy));
 
         pkgbuild::PosixProcessExecutor processes;
-        pkgbuild::PkgfileDefinitionLoader definitions(helper, processes);
         pkgbuild::CurlDownloader downloader;
         pkgbuild::OpenSslSourceVerifier verifier;
         pkgbuild::LibarchiveBackend archives;
         pkgbuild::FakerootPkgfileRecipeRunner recipes(
             fakeroot, helper, scanner, processes);
         pkgbuild::PackageTreeTransformer transformer(strip, processes);
-        pkgbuild::Services services{
-            definitions,
+        pkgbuild::BuildServices services{
             downloader,
             verifier,
             archives,
@@ -223,37 +266,48 @@ int main(int argc, char** argv)
         pkgbuild::Engine engine(services);
         TerminalEvents events;
 
-        pkgbuild::BuildRequest request{
-            pkgbuild::DefinitionRequest{
-                paths,
-                config_file,
-                pkgbuild::ArchiveSpec{},
-                pkgbuild::ExecutionPolicy{
-                    build_user ?
-                        std::optional<pkgbuild::BuildIdentity>(
-                            build_identity(*build_user)) :
-                        std::nullopt,
-                    selected_environment(),
-                    0022,
-                    temporary_directory
-                        ? std::optional<std::filesystem::path>(
-                            std::filesystem::absolute(*temporary_directory))
-                        : std::nullopt,
-                },
+        pkgbuild::BuildEnvironment build_environment{
+            source_cache,
+            package_output,
+            work_base,
+            pkgbuild::ExecutionPolicy{
+                identity,
+                environment,
+                0022,
+                temporary_directory
+                    ? std::optional<std::filesystem::path>(
+                        std::filesystem::absolute(*temporary_directory))
+                    : std::nullopt,
             },
             download,
             keep_work,
-            {},
-            footprint,
             workspace_directory
                 ? std::optional<std::filesystem::path>(
                     std::filesystem::absolute(*workspace_directory))
                 : std::nullopt,
         };
 
-        const auto receipt = engine.build(request, events);
-        std::cout << receipt.package << '\n';
+        const auto receipt =
+            engine.build(definition, build_environment, events);
+        const auto& built = receipt.definition;
+        const auto& package = built.identity();
+        std::cout << "artifact\t" << receipt.archive.output << '\n'
+                  << "source-snapshot\t"
+                  << pkgsource::to_string(
+                         built.source_snapshot_fingerprint().algorithm())
+                  << ':' << built.source_snapshot_fingerprint().hex() << '\n'
+                  << "package\t" << package.name << '#' << package.version
+                  << '-' << package.release << '\n'
+                  << "archive\t" << pkgbuild::to_string(
+                         receipt.archive.archive.format)
+                  << '/' << pkgbuild::to_string(
+                         receipt.archive.archive.compression) << '\n'
+                  << "bytes\t" << receipt.archive.bytes_written << '\n';
         return 0;
+    } catch (const pkgsource::error& error) {
+        std::cerr << "pkgbuild-example: source inspection: "
+                  << error.what() << '\n';
+        return 1;
     } catch (const pkgbuild::Error& error) {
         std::cerr << "pkgbuild-example: " << error.what() << '\n';
         return 1;

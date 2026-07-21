@@ -95,7 +95,7 @@ printf '%s\n' "$identity_output" | grep -q '^\[1/1\] SEMANTIC_MISMATCH fake$'
 identity_report=$(printf '%s\n' "$identity_output" | sed -n 's/^REPORT //p')
 grep -q 'package-filename' "$identity_report"
 
-# Exercise ordered manifests, baseline configuration, download forwarding,
+# Exercise ordered manifests, legacy baseline configuration, download forwarding,
 # continuation after failures, and retained evidence.
 manifest_root=$work/manifest
 mkdir -p "$manifest_root/cases"

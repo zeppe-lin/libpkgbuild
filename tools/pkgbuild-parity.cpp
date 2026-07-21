@@ -85,7 +85,7 @@ struct Options {
            << "  --fakeroot FILE        fakeroot frontend path\n"
            << "  --strip FILE           strip executable path\n"
            << "  --build-user USER      non-root identity for root callers\n"
-           << "  --config FILE          source baseline pkgmk configuration\n"
+           << "  --config FILE          legacy pkgmk baseline configuration\n"
            << "  --manifest FILE        read package directories from FILE\n"
            << "  --work-dir DIR         workspace base\n"
            << "  --report FILE          copy the human report to FILE\n"
@@ -786,7 +786,7 @@ void write_campaign_report(
         output << "manifest: " << options.manifest->string() << '\n';
     else
         output << "corpus: " << options.corpus.string() << '\n';
-    output << "config: "
+    output << "legacy-config: "
            << (options.config_file ? options.config_file->string() : "(none)")
            << '\n'
            << "pkgmk: " << options.pkgmk.string() << '\n'
@@ -1104,7 +1104,6 @@ BuildAttempt run_candidate_attempt(
     const std::filesystem::path& packages,
     const std::filesystem::path& work_base,
     const std::filesystem::path& temporary,
-    const std::filesystem::path& config,
     const std::filesystem::path& evidence,
     std::optional<std::filesystem::path> exact_workspace = std::nullopt)
 {
@@ -1114,7 +1113,6 @@ BuildAttempt run_candidate_attempt(
         "--package-dir", packages.string(),
         "--work-dir", work_base.string(),
         "--tmp-dir", temporary.string(),
-        "--config", config.string(),
         "--helper", options.helper.string(),
         "--scanner", options.scanner.string(),
         "--fakeroot", options.fakeroot.string(),
@@ -1294,7 +1292,7 @@ CaseResult run_case(const Options& options,
 
     const auto candidate_one = run_candidate_attempt(
         options, executor, identity, environment, recipe, sources, packages,
-        work_base, temporary, config, candidate / "run-1");
+        work_base, temporary, candidate / "run-1");
     if (!candidate_one.ok())
         return failed_attempt(candidate_one, CaseStatus::candidate_build_failed,
                               "libpkgbuild", name, corpus_case, root);
@@ -1326,7 +1324,7 @@ CaseResult run_case(const Options& options,
 
     const auto candidate_two = run_candidate_attempt(
         options, executor, identity, environment, recipe, sources, packages,
-        work_base, temporary, config, candidate / "run-2",
+        work_base, temporary, candidate / "run-2",
         candidate_one.workspace);
     if (!candidate_two.ok())
         return failed_attempt(candidate_two, CaseStatus::candidate_build_failed,
