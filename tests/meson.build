@@ -187,3 +187,12 @@ if libpkgimage_dep.found()
     args: [pkgbuild_parity, fakeroot_program.full_path()],
   )
 endif
+
+source_projection_test = executable(
+  'source-projection-test',
+  'source-projection-test.cpp',
+  dependencies: pkgbuild_dep,
+  install: false,
+)
+
+test('source snapshot projection', source_projection_test)

@@ -10,6 +10,11 @@ project(
   ],
 )
 
+libpkgsource_dep = dependency(
+  'libpkgsource',
+  version: '>=0.1.0',
+  required: true,
+)
 libarchive_dep = dependency('libarchive', required: true)
 libcurl_dep = dependency('libcurl', required: true)
 libcrypto_dep = dependency('libcrypto', required: true)
@@ -40,6 +45,7 @@ inc = include_directories('include')
 
 sources = files(
   'libpkgbuild/types.cpp',
+  'libpkgbuild/definition.cpp',
   'libpkgbuild/source.cpp',
   'libpkgbuild/footprint.cpp',
   'libpkgbuild/process.cpp',
@@ -56,7 +62,13 @@ libpkgbuild = library(
   'pkgbuild',
   sources,
   include_directories: inc,
-  dependencies: [libarchive_dep, libcurl_dep, libcrypto_dep, zlib_dep],
+  dependencies: [
+    libpkgsource_dep,
+    libarchive_dep,
+    libcurl_dep,
+    libcrypto_dep,
+    zlib_dep,
+  ],
   version: meson.project_version(),
   soversion: '0',
   install: true,
@@ -65,7 +77,13 @@ libpkgbuild = library(
 pkgbuild_dep = declare_dependency(
   link_with: libpkgbuild,
   include_directories: inc,
-  dependencies: [libarchive_dep, libcurl_dep, libcrypto_dep, zlib_dep],
+  dependencies: [
+    libpkgsource_dep,
+    libarchive_dep,
+    libcurl_dep,
+    libcrypto_dep,
+    zlib_dep,
+  ],
 )
 
 meson.override_dependency('libpkgbuild', pkgbuild_dep)
@@ -88,6 +106,7 @@ pkgconfig.generate(
   name: 'libpkgbuild',
   description: 'Zeppe-Lin package build engine',
   version: meson.project_version(),
+  requires: ['libpkgsource >= 0.1.0'],
   requires_private: ['libarchive', 'libcurl', 'libcrypto', 'zlib'],
 )
 
