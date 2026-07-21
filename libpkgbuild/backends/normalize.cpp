@@ -620,11 +620,11 @@ void restore_archive_member_ownership(
     }
 }
 
-class BasicRegex final {
+class PosixRegex final {
 public:
-    explicit BasicRegex(const std::string& pattern)
+    PosixRegex(const std::string& pattern, int flags)
     {
-        const int status = regcomp(&value_, pattern.c_str(), REG_NOSUB);
+        const int status = regcomp(&value_, pattern.c_str(), flags);
         if (status != 0) {
             char message[256] {};
             (void)regerror(status, &value_, message, sizeof(message));
@@ -635,14 +635,14 @@ public:
         valid_ = true;
     }
 
-    ~BasicRegex()
+    ~PosixRegex()
     {
         if (valid_)
             regfree(&value_);
     }
 
-    BasicRegex(const BasicRegex&) = delete;
-    BasicRegex& operator=(const BasicRegex&) = delete;
+    PosixRegex(const PosixRegex&) = delete;
+    PosixRegex& operator=(const PosixRegex&) = delete;
 
     bool matches(const std::string& value) const
     {
@@ -654,17 +654,35 @@ private:
     bool valid_{false};
 };
 
-std::vector<std::unique_ptr<BasicRegex>>
+using CompiledExclusions = std::vector<std::unique_ptr<PosixRegex>>;
+
+CompiledExclusions
 compile_exclusions(const std::vector<std::string>& patterns)
 {
-    std::vector<std::unique_ptr<BasicRegex>> result;
+    CompiledExclusions result;
     result.reserve(patterns.size());
     for (const auto& pattern : patterns)
-        result.push_back(std::make_unique<BasicRegex>(pattern));
+        result.push_back(std::make_unique<PosixRegex>(pattern, REG_NOSUB));
     return result;
 }
 
-bool excluded(const std::vector<std::unique_ptr<BasicRegex>>& patterns,
+CompiledExclusions
+compile_exclusions(const std::vector<StripExclusion>& patterns)
+{
+    CompiledExclusions result;
+    result.reserve(patterns.size());
+    for (const auto& exclusion : patterns) {
+        switch (exclusion.syntax) {
+        case StripPatternSyntax::posix_extended_regular_expression:
+            result.push_back(std::make_unique<PosixRegex>(
+                exclusion.pattern, REG_EXTENDED | REG_NOSUB));
+            break;
+        }
+    }
+    return result;
+}
+
+bool excluded(const CompiledExclusions& patterns,
               const std::filesystem::path& path)
 {
     const auto value = path.generic_string();
@@ -792,7 +810,7 @@ void install_transformed_group(const StagedPackage& package,
 }
 
 void strip_binaries(StagedPackage& package,
-                    const PackageDefinition& definition,
+                    const CompiledExclusions& exclusions,
                     const ExecutionPolicy& execution,
                     const std::filesystem::path& strip_program,
                     const ProcessExecutor& processes,
@@ -803,7 +821,6 @@ void strip_binaries(StagedPackage& package,
         throw Error(ErrorCode::invalid_configuration,
                     "strip program must be an absolute path");
 
-    const auto exclusions = compile_exclusions(definition.strip_exclusions);
     const auto groups = regular_groups(package);
     for (const auto& [canonical, indices] : groups) {
         const auto full = package.root / canonical;
@@ -1103,10 +1120,32 @@ TransformationReceipt PackageTreeTransformer::transform(
 {
     validate_staged_package(request.package);
     TransformationReceipt receipt{std::string(name()), {}};
-    if (request.policy.strip_binaries)
-        strip_binaries(request.package, request.definition, request.execution,
+    if (request.policy.strip_binaries) {
+        const auto exclusions =
+            compile_exclusions(request.definition.strip_exclusions);
+        strip_binaries(request.package, exclusions, request.execution,
                        strip_program_, processes_, receipt, events);
+    }
     if (request.policy.compress_manpages)
+        compress_manpages(request.package, receipt, events);
+    validate_staged_package(request.package);
+    return receipt;
+}
+
+TransformationReceipt PackageTreeTransformer::transform_definition(
+    const DefinitionTransformRequest& request,
+    EventSink& events) const
+{
+    validate_staged_package(request.package);
+    TransformationReceipt receipt{std::string(name()), {}};
+    const auto& policy = request.definition.policy().transformations;
+    if (policy.strip_binaries) {
+        const auto exclusions =
+            compile_exclusions(request.definition.strip_exclusions());
+        strip_binaries(request.package, exclusions, request.execution,
+                       strip_program_, processes_, receipt, events);
+    }
+    if (policy.compress_manpages)
         compress_manpages(request.package, receipt, events);
     validate_staged_package(request.package);
     return receipt;

@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace pkgbuild {
@@ -15,6 +16,8 @@ enum class BuildArchitecture {
     native,
     legacy_32bit,
 };
+
+[[nodiscard]] std::string_view to_string(BuildArchitecture value) noexcept;
 
 /*! \brief Grammar attached to one projected strip exclusion. */
 enum class StripPatternSyntax {

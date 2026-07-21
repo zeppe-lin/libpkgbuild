@@ -90,6 +90,9 @@ void validate_recipe(const pkgsource::recipe_descriptor& recipe)
     if (!recipe.program())
         throw Error(ErrorCode::invalid_definition,
                     "captured recipe program is missing");
+    if (recipe.program().relative_path() != "Pkgfile")
+        throw Error(ErrorCode::invalid_definition,
+                    "captured pkgfile/0 recipe identity is not Pkgfile");
 }
 
 void validate_footprint(
@@ -141,6 +144,17 @@ void validate_policy(
 }
 
 } // namespace
+
+std::string_view to_string(BuildArchitecture value) noexcept
+{
+    switch (value) {
+    case BuildArchitecture::native:
+        return "native";
+    case BuildArchitecture::legacy_32bit:
+        return "legacy_32bit";
+    }
+    return "unknown";
+}
 
 BuildDefinition::BuildDefinition(
     pkgsource::source_snapshot snapshot,

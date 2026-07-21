@@ -1,5 +1,7 @@
 #pragma once
 
+#include <pkgbuild/definition.hpp>
+#include <pkgbuild/error.hpp>
 #include <pkgbuild/event.hpp>
 #include <pkgbuild/source.hpp>
 #include <pkgbuild/types.hpp>
@@ -49,18 +51,40 @@ public:
                          EventSink& events) const = 0;
 };
 
+struct CapturedRecipeRequest {
+    const BuildDefinition& definition;
+    BuildPaths paths;
+    std::filesystem::path source_root;
+    std::filesystem::path package_root;
+    ExecutionPolicy execution;
+};
+
 class RecipeRunner {
 public:
     virtual ~RecipeRunner() = default;
     virtual std::string_view name() const noexcept = 0;
     virtual StagedPackage run(const RecipeRequest& request,
                               EventSink& events) const = 0;
+
+    virtual StagedPackage run_captured(
+        const CapturedRecipeRequest&,
+        EventSink&) const
+    {
+        throw Error(ErrorCode::invalid_configuration,
+                    "recipe backend does not support captured execution");
+    }
 };
 
 struct PackageTransformRequest {
     StagedPackage& package;
     const PackageDefinition& definition;
     const TransformationPolicy& policy;
+    const ExecutionPolicy& execution;
+};
+
+struct DefinitionTransformRequest {
+    StagedPackage& package;
+    const BuildDefinition& definition;
     const ExecutionPolicy& execution;
 };
 
@@ -71,6 +95,15 @@ public:
     virtual TransformationReceipt transform(
         const PackageTransformRequest& request,
         EventSink& events) const = 0;
+
+    virtual TransformationReceipt transform_definition(
+        const DefinitionTransformRequest&,
+        EventSink&) const
+    {
+        throw Error(
+            ErrorCode::invalid_configuration,
+            "package transformer does not support build definitions");
+    }
 };
 
 class NullPackageTransformer final : public PackageTransformer {
@@ -78,6 +111,13 @@ public:
     std::string_view name() const noexcept override { return "none"; }
     TransformationReceipt transform(
         const PackageTransformRequest&,
+        EventSink&) const override
+    {
+        return TransformationReceipt{std::string(name()), {}};
+    }
+
+    TransformationReceipt transform_definition(
+        const DefinitionTransformRequest&,
         EventSink&) const override
     {
         return TransformationReceipt{std::string(name()), {}};

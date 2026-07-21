@@ -19,6 +19,9 @@ public:
     TransformationReceipt transform(
         const PackageTransformRequest& request,
         EventSink& events) const override;
+    TransformationReceipt transform_definition(
+        const DefinitionTransformRequest& request,
+        EventSink& events) const override;
 
 private:
     std::filesystem::path strip_program_;

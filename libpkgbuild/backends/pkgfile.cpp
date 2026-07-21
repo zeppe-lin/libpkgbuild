@@ -421,6 +421,45 @@ StagedPackage PosixShellRecipeRunner::run(const RecipeRequest& request,
     return scan_staged_package(request.package_root);
 }
 
+StagedPackage PosixShellRecipeRunner::run_captured(
+    const CapturedRecipeRequest& request,
+    EventSink& events) const
+{
+    emit(events, EventKind::info,
+         "Running captured recipe with " + std::string(name()));
+
+    const auto& definition = request.definition;
+    const auto& policy = definition.policy();
+    const auto& identity = definition.identity();
+    std::vector<std::string> arguments = {
+        "run-captured",
+        std::filesystem::absolute(request.paths.recipe_dir).string(),
+        std::filesystem::absolute(request.paths.source_dir).string(),
+        std::filesystem::absolute(request.paths.package_dir).string(),
+        std::filesystem::absolute(request.paths.work_dir).string(),
+        to_string(policy.archive.format),
+        to_string(policy.archive.compression),
+        std::string(to_string(definition.architecture())),
+        std::filesystem::absolute(request.source_root).string(),
+        std::filesystem::absolute(request.package_root).string(),
+        identity.name,
+        identity.version,
+        identity.release,
+    };
+
+    DefinitionRequest execution_request{
+        request.paths, std::nullopt, policy.archive, request.execution};
+    const auto process = processes_.execute(process_request(
+        execution_request, helper_, std::move(arguments), false,
+        request.paths.work_dir / "tmp"));
+    if (!process.ok())
+        throw Error(ErrorCode::recipe_failed,
+                    "captured build recipe failed with status " +
+                        std::to_string(process.exit_status));
+
+    return scan_staged_package(request.package_root);
+}
+
 
 StagedPackage FakerootPkgfileRecipeRunner::run(
     const RecipeRequest& request, EventSink& events) const
@@ -492,6 +531,66 @@ StagedPackage FakerootPkgfileRecipeRunner::run(
 
     return detail::parse_staged_manifest(request.package_root,
                                          scan.stdout_data);
+}
+
+StagedPackage FakerootPkgfileRecipeRunner::run_captured(
+    const CapturedRecipeRequest& request,
+    EventSink& events) const
+{
+    emit(events, EventKind::info,
+         "Running captured recipe with " + std::string(name()));
+
+    const auto metadata = request.paths.work_dir / "metadata";
+    StateFile state(metadata, request.execution.identity);
+    const auto& definition = request.definition;
+    const auto& policy = definition.policy();
+    const auto& identity = definition.identity();
+
+    std::vector<std::string> worker_arguments = {
+        "run-captured",
+        std::filesystem::absolute(request.paths.recipe_dir).string(),
+        std::filesystem::absolute(request.paths.source_dir).string(),
+        std::filesystem::absolute(request.paths.package_dir).string(),
+        std::filesystem::absolute(request.paths.work_dir).string(),
+        to_string(policy.archive.format),
+        to_string(policy.archive.compression),
+        std::string(to_string(definition.architecture())),
+        std::filesystem::absolute(request.source_root).string(),
+        std::filesystem::absolute(request.package_root).string(),
+        identity.name,
+        identity.version,
+        identity.release,
+    };
+    std::vector<std::string> fakeroot_arguments = {
+        "-s", std::filesystem::absolute(state.path()).string(), "--",
+        std::filesystem::absolute(helper_).string(),
+    };
+    fakeroot_arguments.insert(fakeroot_arguments.end(),
+                              worker_arguments.begin(), worker_arguments.end());
+
+    DefinitionRequest execution_request{
+        request.paths, std::nullopt, policy.archive, request.execution};
+    const auto recipe = processes_.execute(process_request(
+        execution_request, fakeroot_, std::move(fakeroot_arguments), false,
+        request.paths.work_dir / "tmp"));
+    if (!recipe.ok())
+        throw Error(ErrorCode::recipe_failed,
+                    "captured fakeroot recipe failed with status " +
+                        std::to_string(recipe.exit_status));
+
+    std::vector<std::string> scanner_arguments = {
+        "-i", std::filesystem::absolute(state.path()).string(), "--",
+        std::filesystem::absolute(scanner_).string(),
+        std::filesystem::absolute(request.package_root).string(),
+    };
+    const auto scan = processes_.execute(process_request(
+        execution_request, fakeroot_, std::move(scanner_arguments), true,
+        request.paths.work_dir / "tmp"));
+    if (!scan.ok())
+        throw Error(ErrorCode::recipe_failed,
+                    "captured fakeroot metadata scan failed with status " +
+                        std::to_string(scan.exit_status));
+    return detail::parse_staged_manifest(request.package_root, scan.stdout_data);
 }
 
 } // namespace pkgbuild

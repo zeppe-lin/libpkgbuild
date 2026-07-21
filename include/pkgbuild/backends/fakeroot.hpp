@@ -23,6 +23,8 @@ public:
 
     StagedPackage run(const RecipeRequest& request,
                       EventSink& events) const override;
+    StagedPackage run_captured(const CapturedRecipeRequest& request,
+                               EventSink& events) const override;
 
 private:
     std::filesystem::path fakeroot_;

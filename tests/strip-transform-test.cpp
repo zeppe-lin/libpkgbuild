@@ -1,7 +1,10 @@
 #include <pkgbuild/backends/normalize.hpp>
 #include <pkgbuild/backends/posix.hpp>
-#include <pkgbuild/stage.hpp>
+#include <pkgbuild/definition.hpp>
 #include <pkgbuild/error.hpp>
+#include <pkgbuild/stage.hpp>
+
+#include <libpkgsource/pkgfile_backend.h>
 
 #include <array>
 #include <filesystem>
@@ -109,6 +112,18 @@ void write_sectionless_elf(const std::filesystem::path& path,
         fail("cannot write sectionless ELF fixture");
 }
 
+void write_file(const std::filesystem::path& path,
+                const std::string& contents)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary);
+    if (!output)
+        fail("cannot create file: " + path.string());
+    output << contents;
+    if (!output)
+        fail("cannot write file: " + path.string());
+}
+
 std::string read_file(const std::filesystem::path& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -138,6 +153,7 @@ int main(int argc, char** argv)
     }
 
     std::filesystem::path root;
+    std::filesystem::path definition_root;
     try {
         root = temporary_directory();
         const auto bin = root / "usr/bin";
@@ -213,6 +229,41 @@ int main(int argc, char** argv)
                     receipt.changes.front().bytes_after == size_after,
                 "strip receipt sizes are wrong");
 
+        definition_root = temporary_directory();
+        const auto definition_origin = definition_root / "ere-definition";
+        write_file(definition_origin / "Pkgfile",
+                   "name=ere-definition\n"
+                   "version=1\n"
+                   "release=1\n"
+                   "build() { :; }\n");
+        write_file(definition_origin / ".nostrip",
+                   "^usr/(bin|sbin)/keep-ere$\n");
+
+        pkgsource::pkgfile_backend source_backend;
+        auto snapshot = source_backend.inspect({
+            pkgsource::source_location(definition_origin), std::nullopt, {}});
+        pkgbuild::AcceptedBuildPolicy accepted;
+        accepted.transformations.compress_manpages = false;
+        const auto build_definition = pkgbuild::derive_definition(
+            std::move(snapshot), accepted);
+
+        const auto ere_root = definition_root / "package";
+        std::filesystem::create_directories(ere_root / "usr/bin");
+        std::filesystem::copy_file("/proc/self/exe",
+                                   ere_root / "usr/bin/keep-ere");
+        if (execution.identity)
+            assign_tree(ere_root, *execution.identity);
+        const auto ere_before = read_file(ere_root / "usr/bin/keep-ere");
+        auto ere_package = pkgbuild::scan_staged_package(ere_root);
+        const auto ere_receipt = transformer.transform_definition(
+            pkgbuild::DefinitionTransformRequest{
+                ere_package, build_definition, execution},
+            events);
+        require(read_file(ere_root / "usr/bin/keep-ere") == ere_before,
+                "POSIX ERE strip exclusion was interpreted as BRE");
+        require(ere_receipt.changes.empty(),
+                "excluded ERE path produced a strip receipt");
+
         for (const auto& item : std::filesystem::recursive_directory_iterator(root)) {
             require(item.path().filename().string().rfind(".pkgbuild-", 0) != 0,
                     "strip temporary or backup leaked into package tree");
@@ -256,11 +307,14 @@ int main(int argc, char** argv)
                 "disabled stripping produced transformations");
 
         std::filesystem::remove_all(root);
+        std::filesystem::remove_all(definition_root);
         std::cout << "binary transformation: PASS\n";
         return 0;
     } catch (const std::exception& error) {
         if (!root.empty())
             std::filesystem::remove_all(root);
+        if (!definition_root.empty())
+            std::filesystem::remove_all(definition_root);
         std::cerr << "binary transformation: " << error.what() << '\n';
         return 1;
     }

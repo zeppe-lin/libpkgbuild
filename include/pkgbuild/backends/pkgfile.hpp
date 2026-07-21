@@ -29,6 +29,8 @@ public:
     std::string_view name() const noexcept override { return "pkgfile/0-shell"; }
     StagedPackage run(const RecipeRequest& request,
                       EventSink& events) const override;
+    StagedPackage run_captured(const CapturedRecipeRequest& request,
+                               EventSink& events) const override;
 
 private:
     std::filesystem::path helper_;
