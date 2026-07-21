@@ -16,6 +16,15 @@ test(
   ],
 )
 
+pkgfile_captured_run_test = find_program('pkgfile-captured-run-test.sh')
+test(
+  'captured Pkgfile execution',
+  pkgfile_captured_run_test,
+  args: [
+    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+  ],
+)
+
 workspace_test = executable(
   'workspace-test',
   'workspace-test.cpp',
