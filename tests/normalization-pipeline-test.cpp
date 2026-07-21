@@ -118,7 +118,7 @@ std::map<std::string, EntryInfo> read_archive(const std::filesystem::path& path)
     return result;
 }
 
-bool has_kind(const pkgbuild::BuildReceipt& receipt,
+bool has_kind(const pkgbuild::LegacyBuildReceipt& receipt,
               pkgbuild::TransformationKind kind)
 {
     for (const auto& transformation : receipt.transformations) {

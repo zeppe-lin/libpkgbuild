@@ -587,7 +587,16 @@ BuildReceipt Engine::build(const BuildDefinition& definition,
     const auto source_root = std::filesystem::absolute(paths.work_dir / "src");
     const auto package_root = std::filesystem::absolute(paths.work_dir / "pkg");
 
-    BuildReceipt receipt{definition};
+    BuildReceipt receipt{
+        definition,
+        {},
+        {},
+        {},
+        {},
+        std::nullopt,
+        {},
+        std::nullopt,
+    };
     if (environment.keep_work)
         receipt.work_directory = workspace.path();
 
