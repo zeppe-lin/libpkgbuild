@@ -253,6 +253,13 @@ if build_planner_adapter
   test('planner adapter public header', plan_adapter_header_test)
 endif
 
+meson_topology_test = find_program('check_meson_topology.sh')
+test(
+  'Meson topology contract',
+  meson_topology_test,
+  args: [meson.project_source_root()],
+)
+
 adapter_contract_test = find_program('check_adapter_contract.sh')
 test(
   'planner adapter source contract',
