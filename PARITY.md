@@ -309,7 +309,7 @@ application remain separate later migrations.
 Building
 --------
 
-The tools require libpkgimage 0.2.1 or later.  The Meson feature option
+The tools require libpkgimage 0.3.0 or later.  The Meson feature option
 is `auto` by default:
 
 ```

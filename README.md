@@ -1,4 +1,4 @@
-LIBPKGBUILD 0.8.8
+LIBPKGBUILD 0.9.0
 =================
 
 libpkgbuild is the Zeppe-Lin package build engine.  It remains an
@@ -120,7 +120,7 @@ explicitly and is recorded in BuildReceipt::footprint.
 Differential parity model
 -------------------------
 
-The optional parity tools use libpkgimage 0.2.1 or later without adding
+The optional parity tools use libpkgimage 0.3.0 or later without adding
 libpkgimage to the libpkgbuild runtime dependency closure.
 `pkgbuild-archive-compare` compares normalized archive semantics and
 SHA-256 payload hashes while ignoring archive order, timestamps, and the

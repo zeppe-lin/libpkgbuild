@@ -1,7 +1,7 @@
 project(
   'libpkgbuild',
   'cpp',
-  version: '0.8.8',
+  version: '0.9.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.2.0',
   default_options: [
@@ -82,7 +82,7 @@ libpkgbuild = library(
     zlib_dep,
   ],
   version: meson.project_version(),
-  soversion: '0',
+  soversion: '1',
   install: true,
 )
 
