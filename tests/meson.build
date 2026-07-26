@@ -227,3 +227,24 @@ test(
     strip_program.full_path(),
   ],
 )
+
+if is_variable('libpkgbuild_plan_dep')
+  plan_adapter_test = executable(
+    'plan-adapter-test',
+    'plan-adapter-test.cpp',
+    dependencies: libpkgbuild_plan_dep,
+    cpp_args: [
+      '-DTEST_WORKER="' + pkgfile_worker_build_path + '"',
+    ],
+    install: false,
+  )
+  test('sealed build planner projection', plan_adapter_test)
+
+  plan_adapter_header_test = executable(
+    'plan-adapter-header-test',
+    'plan-adapter-header-test.cpp',
+    dependencies: libpkgbuild_plan_dep,
+    install: false,
+  )
+  test('planner adapter public header', plan_adapter_header_test)
+endif
