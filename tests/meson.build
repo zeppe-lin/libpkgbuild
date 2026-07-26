@@ -18,11 +18,21 @@ if get_option('tests').enabled()
   endforeach
 
   if libpkgsource_plan_dep.found() and libpkgimage_dep.found() and libpkgplan_dep.found()
+    test_libarchive_dep = dependency(
+      'libarchive',
+      required: true,
+      static: want_static,
+    )
+
     plan_adapter_test = executable(
       'plan-adapter-test',
       'plan_adapter_test.cpp',
       include_directories: include_directories('.'),
-      dependencies: libpkgbuild_plan_dep,
+      dependencies: [
+        libpkgbuild_plan_dep,
+        test_libarchive_dep,
+        libcrypto_dep,
+      ],
       install: false,
     )
     test('plan-adapter', plan_adapter_test)
