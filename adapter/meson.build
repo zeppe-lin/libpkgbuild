@@ -45,7 +45,7 @@ pkgconfig.generate(
   subdirs: '.',
   requires: [
     'libpkgbuild = ' + meson.project_version(),
-    'libpkgsource-plan >= 0.2.0',
+    'libpkgsource-plan >= 0.2.1',
     'libpkgimage >= 0.3.0',
     'libpkgplan >= 0.2.0',
   ],

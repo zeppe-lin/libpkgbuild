@@ -12,7 +12,7 @@ test(
   'Pkgfile execution paths',
   pkgfile_paths_test,
   args: [
-    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    pkgbuild_worker,
   ],
 )
 
@@ -21,7 +21,7 @@ test(
   'captured Pkgfile execution',
   pkgfile_captured_run_test,
   args: [
-    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    pkgbuild_worker,
   ],
 )
 
@@ -64,7 +64,7 @@ test(
   'fakeroot staged metadata',
   fakeroot_metadata_test,
   args: [
-    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    pkgbuild_worker,
     stage_scanner,
     fakeroot_program.full_path(),
   ],
@@ -90,7 +90,7 @@ test(
   'Pkgfile checksum manifest',
   pkgfile_checksum_test,
   args: [
-    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    pkgbuild_worker,
   ],
 )
 
@@ -149,7 +149,7 @@ test(
   'package normalization pipeline',
   normalization_pipeline_test,
   args: [
-    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    pkgbuild_worker,
     stage_scanner,
     fakeroot_program.full_path(),
     strip_program.full_path(),
@@ -175,7 +175,7 @@ footprint_pipeline_test = executable(
 test('footprint pipeline', footprint_pipeline_test)
 
 
-if libpkgimage_dep.found()
+if build_parity
   parity_compare_test = executable(
     'parity-compare-test',
     [
@@ -193,7 +193,11 @@ if libpkgimage_dep.found()
   test(
     'pkgmk parity corpus runner',
     parity_runner_test,
-    args: [pkgbuild_parity, fakeroot_program.full_path()],
+    args: [
+      pkgbuild_parity,
+      fakeroot_program.full_path(),
+      pkgbuild_worker,
+    ],
   )
 endif
 
@@ -221,20 +225,20 @@ test(
   reference_tool_test,
   args: [
     pkgbuild_example,
-    join_paths(meson.project_source_root(), 'libpkgbuild/pkgbuild-pkgfile.in'),
+    pkgbuild_worker,
     stage_scanner,
     fakeroot_program.full_path(),
     strip_program.full_path(),
   ],
 )
 
-if is_variable('libpkgbuild_plan_dep')
+if build_planner_adapter
   plan_adapter_test = executable(
     'plan-adapter-test',
     'plan-adapter-test.cpp',
     dependencies: libpkgbuild_plan_dep,
     cpp_args: [
-      '-DTEST_WORKER="' + pkgfile_worker_build_path + '"',
+      '-DTEST_WORKER="' + pkgsource_worker_path + '"',
     ],
     install: false,
   )

@@ -3,8 +3,8 @@ set -eu
 
 runner=$1
 fakeroot=$2
+helper=$3
 root=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-helper=$root/../../libpkgbuild/pkgbuild-pkgfile.in
 work=$(mktemp -d "${TMPDIR:-/tmp}/pkgbuild-parity-runner.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 chmod 0755 "$work"

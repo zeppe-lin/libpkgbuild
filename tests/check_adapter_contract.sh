@@ -18,7 +18,7 @@ reject() {
 }
 
 require meson_options.txt "'planner_adapter'"
-require adapter/meson.build "'libpkgsource-plan >= 0.2.0'"
+require adapter/meson.build "'libpkgsource-plan >= 0.2.1'"
 require adapter/meson.build "'libpkgimage >= 0.3.0'"
 require adapter/meson.build "'libpkgplan >= 0.2.0'"
 require include/pkgbuild-plan/adapter.hpp "project_artifact("
