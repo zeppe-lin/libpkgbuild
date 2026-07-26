@@ -175,3 +175,4 @@ if libpkgimage_dep.found()
 endif
 
 subdir('tests')
+subdir('man')

@@ -287,3 +287,45 @@ The offline vertical slice can also be compiled directly:
 ```sh
 ./tests/run-example.sh
 ```
+
+Sealed artifact authority
+-------------------------
+
+The snapshot-bound engine does not treat a successful package-writer return or
+an archive pathname as artifact identity.  After publication, it opens the
+reported regular file without following a final symbolic link, verifies the
+writer pathname and byte count, hashes the exact retained bytes with SHA-256,
+and rejects mutation during sealing.  Successful snapshot-bound builds retain
+that evidence as `BuildReceipt::artifact`.
+
+The writer-facing `ArchiveReceipt` remains operational evidence about archive
+creation.  `SealedArtifactReceipt` is the build authority over the exact
+published bytes.  The separation prevents a backend success code or filename
+convention from becoming package identity by accident.
+
+Planner artifact adapter
+------------------------
+
+The optional `libpkgbuild-plan` library composes the sealed build result with
+`libpkgsource-plan`, `libpkgimage`, and `libpkgplan`.  It reopens the reported
+archive through a caller-supplied libpkgimage backend while requiring the exact
+build-engine SHA-256 digest, then returns a lifetime-bound projection retaining:
+
+* the complete BuildReceipt;
+* the source-issued candidate projection;
+* the exact inspected package image and inspection receipt; and
+* the planner artifact and artifact-manifest facts.
+
+The planner artifact identity is the exact archive-byte digest in the planner
+artifact domain.  The artifact-manifest identity binds the source snapshot,
+candidate release and control, exact archive bytes, normalized package image,
+and inspection receipt.  Archive filenames remain labels only.
+
+Build with the adapter explicitly enabled using:
+
+```
+meson setup build -Dplanner_adapter=enabled
+```
+
+Disabling the adapter leaves libpkgplan and libpkgimage outside the core
+libpkgbuild dependency closure.
