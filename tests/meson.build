@@ -4,6 +4,7 @@ if get_option('tests').enabled()
   foreach item : [
     ['model-test', 'model_test.cpp'],
     ['request-test', 'request_test.cpp'],
+    ['result-test', 'result_test.cpp'],
     ['public-headers', 'public_headers.cpp'],
   ]
     value = executable(

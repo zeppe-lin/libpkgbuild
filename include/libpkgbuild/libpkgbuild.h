@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /*! \file libpkgbuild.h
- *  \brief Public native libpkgbuild request surface.
+ *  \brief Public native libpkgbuild authority surface.
  */
 #pragma once
 
@@ -10,3 +10,4 @@
 #include <libpkgbuild/identity.h>
 #include <libpkgbuild/model.h>
 #include <libpkgbuild/request.h>
+#include <libpkgbuild/result.h>

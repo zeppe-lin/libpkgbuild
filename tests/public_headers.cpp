@@ -5,4 +5,6 @@
 #include <libpkgbuild/libpkgbuild.h>
 #include <libpkgbuild/model.h>
 #include <libpkgbuild/request.h>
+#include <libpkgbuild/result.h>
+
 int main() { return 0; }
