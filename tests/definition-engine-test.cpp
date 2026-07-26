@@ -284,6 +284,14 @@ int main()
                 "accepted artifact identity was not used");
         require(fs::is_regular_file(receipt.archive.output),
                 "reported artifact does not exist");
+        require(receipt.artifact.path == receipt.archive.output,
+                "sealed artifact path lost writer output");
+        require(receipt.artifact.bytes == receipt.archive.bytes_written,
+                "sealed artifact byte count diverged from writer receipt");
+        require(receipt.artifact.digest.algorithm ==
+                    pkgbuild::DigestAlgorithm::sha256 &&
+                    receipt.artifact.digest.hexadecimal.size() == 64,
+                "sealed artifact digest is not SHA-256");
         require(receipt.verifications.size() == 1,
                 "captured local source was not verified");
         require(fs::is_empty(temporary.path() / "work"),

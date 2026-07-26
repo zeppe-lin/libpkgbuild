@@ -102,6 +102,13 @@ private:
     AcceptedBuildPolicy policy_;
 };
 
+/*! \brief Exact published-byte evidence issued by the build engine. */
+struct SealedArtifactReceipt {
+    std::filesystem::path path;
+    std::uintmax_t bytes{0};
+    Digest digest;
+};
+
 /*! \brief Complete result of realizing one immutable build definition. */
 struct BuildReceipt {
     BuildDefinition definition;
@@ -111,6 +118,7 @@ struct BuildReceipt {
     std::vector<TransformationReceipt> transformations;
     std::optional<FootprintReceipt> footprint;
     ArchiveReceipt archive;
+    SealedArtifactReceipt artifact;
     std::optional<std::filesystem::path> work_directory;
 };
 

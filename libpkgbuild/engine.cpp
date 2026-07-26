@@ -4,6 +4,7 @@
 #include <pkgbuild/process.hpp>
 #include <pkgbuild/stage.hpp>
 
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <dirent.h>
@@ -13,8 +14,147 @@
 #include <unistd.h>
 #include <vector>
 
+#include <openssl/evp.h>
+
 namespace pkgbuild {
 namespace {
+
+
+class ArtifactDescriptor final {
+public:
+    explicit ArtifactDescriptor(int descriptor) : descriptor_(descriptor) {}
+    ~ArtifactDescriptor()
+    {
+        if (descriptor_ >= 0)
+            (void)close(descriptor_);
+    }
+    ArtifactDescriptor(const ArtifactDescriptor&) = delete;
+    ArtifactDescriptor& operator=(const ArtifactDescriptor&) = delete;
+    int get() const noexcept { return descriptor_; }
+private:
+    int descriptor_;
+};
+
+bool same_file_state(const struct stat& lhs, const struct stat& rhs) noexcept
+{
+    return lhs.st_dev == rhs.st_dev && lhs.st_ino == rhs.st_ino &&
+           lhs.st_mode == rhs.st_mode && lhs.st_size == rhs.st_size &&
+           lhs.st_mtim.tv_sec == rhs.st_mtim.tv_sec &&
+           lhs.st_mtim.tv_nsec == rhs.st_mtim.tv_nsec &&
+           lhs.st_ctim.tv_sec == rhs.st_ctim.tv_sec &&
+           lhs.st_ctim.tv_nsec == rhs.st_ctim.tv_nsec;
+}
+
+std::string lower_hex(const unsigned char* bytes, std::size_t size)
+{
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string result;
+    result.resize(size * 2);
+    for (std::size_t index = 0; index != size; ++index) {
+        result[index * 2] = digits[bytes[index] >> 4];
+        result[index * 2 + 1] = digits[bytes[index] & 0x0f];
+    }
+    return result;
+}
+
+SealedArtifactReceipt seal_artifact(const ArchiveReceipt& archive,
+                                    const std::filesystem::path& requested)
+{
+    const auto expected = std::filesystem::absolute(requested).lexically_normal();
+    const auto reported = std::filesystem::absolute(archive.output).lexically_normal();
+    if (reported != expected)
+        throw Error(ErrorCode::archive_failed,
+                    "package writer reported a foreign archive output: " +
+                        archive.output.string());
+
+    struct stat path_before {};
+    if (lstat(expected.c_str(), &path_before) != 0)
+        throw Error(ErrorCode::archive_failed,
+                    "cannot inspect published package archive: " +
+                        expected.string());
+    if (S_ISLNK(path_before.st_mode) || !S_ISREG(path_before.st_mode))
+        throw Error(ErrorCode::archive_failed,
+                    "published package archive is not a regular file: " +
+                        expected.string());
+
+    int flags = O_RDONLY | O_CLOEXEC;
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#endif
+    ArtifactDescriptor input(open(expected.c_str(), flags));
+    if (input.get() < 0)
+        throw Error(ErrorCode::archive_failed,
+                    "cannot open published package archive: " +
+                        expected.string());
+
+    struct stat before {};
+    if (fstat(input.get(), &before) != 0 || !S_ISREG(before.st_mode))
+        throw Error(ErrorCode::archive_failed,
+                    "cannot retain published package archive: " +
+                        expected.string());
+    if (before.st_dev != path_before.st_dev || before.st_ino != path_before.st_ino)
+        throw Error(ErrorCode::archive_failed,
+                    "published package archive changed before sealing: " +
+                        expected.string());
+    if (before.st_size < 0 ||
+        static_cast<std::uintmax_t>(before.st_size) != archive.bytes_written)
+        throw Error(ErrorCode::archive_failed,
+                    "package writer byte count does not match published archive");
+
+    EVP_MD_CTX* raw = EVP_MD_CTX_new();
+    if (raw == nullptr)
+        throw Error(ErrorCode::archive_failed,
+                    "cannot allocate package artifact digest context");
+    struct Context final {
+        EVP_MD_CTX* value;
+        ~Context() { EVP_MD_CTX_free(value); }
+    } context{raw};
+
+    if (EVP_DigestInit_ex(context.value, EVP_sha256(), nullptr) != 1)
+        throw Error(ErrorCode::archive_failed,
+                    "cannot initialize package artifact digest");
+
+    std::array<unsigned char, 64 * 1024> buffer{};
+    for (;;) {
+        const ssize_t count = read(input.get(), buffer.data(), buffer.size());
+        if (count > 0) {
+            if (EVP_DigestUpdate(context.value, buffer.data(),
+                                 static_cast<std::size_t>(count)) != 1)
+                throw Error(ErrorCode::archive_failed,
+                            "cannot hash published package archive");
+            continue;
+        }
+        if (count == 0)
+            break;
+        if (errno == EINTR)
+            continue;
+        throw Error(ErrorCode::archive_failed,
+                    "cannot read published package archive");
+    }
+
+    std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+    unsigned int digest_size = 0;
+    if (EVP_DigestFinal_ex(context.value, digest.data(), &digest_size) != 1 ||
+        digest_size != 32)
+        throw Error(ErrorCode::archive_failed,
+                    "cannot finalize package artifact digest");
+
+    struct stat after {};
+    struct stat path_after {};
+    if (fstat(input.get(), &after) != 0 ||
+        lstat(expected.c_str(), &path_after) != 0 ||
+        !same_file_state(before, after) ||
+        after.st_dev != path_after.st_dev || after.st_ino != path_after.st_ino)
+        throw Error(ErrorCode::archive_failed,
+                    "published package archive changed while sealing: " +
+                        expected.string());
+
+    return SealedArtifactReceipt{
+        expected,
+        static_cast<std::uintmax_t>(after.st_size),
+        Digest{DigestAlgorithm::sha256, lower_hex(digest.data(), digest_size)},
+    };
+}
 
 std::filesystem::path normalized(const std::filesystem::path& path)
 {
@@ -624,6 +764,7 @@ BuildReceipt Engine::build(const BuildDefinition& definition,
         {},
         std::nullopt,
         {},
+        {},
         std::nullopt,
     };
     if (environment.keep_work)
@@ -730,6 +871,7 @@ BuildReceipt Engine::build(const BuildDefinition& definition,
     receipt.archive = services_.packages.write(
         PackageWriteRequest{std::move(staged), target, archive}, events);
     receipt.package = receipt.archive.output;
+    receipt.artifact = seal_artifact(receipt.archive, target);
 
     emit(events, EventKind::info,
          "Built package '" + receipt.package.string() + "' from snapshot " +
