@@ -15,6 +15,18 @@ libpkgsource_dep = dependency(
   version: '>=0.1.0',
   required: true,
 )
+
+planner_adapter_option = get_option('planner_adapter')
+libpkgsource_plan_dep = dependency(
+  'libpkgsource-plan',
+  version: '>=0.2.0',
+  required: planner_adapter_option,
+)
+libpkgplan_dep = dependency(
+  'libpkgplan',
+  version: '>=0.2.0',
+  required: planner_adapter_option,
+)
 libarchive_dep = dependency('libarchive', required: true)
 libcurl_dep = dependency('libcurl', required: true)
 libcrypto_dep = dependency('libcrypto', required: true)
@@ -23,8 +35,8 @@ zlib_dep = dependency('zlib', required: true)
 parity_option = get_option('parity')
 libpkgimage_dep = dependency(
   'libpkgimage',
-  version: '>=0.2.1',
-  required: parity_option,
+  version: '>=0.3.0',
+  required: parity_option.enabled() or planner_adapter_option.enabled(),
 )
 
 pkgfile_helper = join_paths(
@@ -87,6 +99,15 @@ pkgbuild_dep = declare_dependency(
 )
 
 meson.override_dependency('libpkgbuild', pkgbuild_dep)
+
+if planner_adapter_option.enabled() or (
+    planner_adapter_option.auto() and
+    libpkgsource_plan_dep.found() and
+    libpkgplan_dep.found() and
+    libpkgimage_dep.found()
+  )
+  subdir('adapter')
+endif
 
 install_subdir(
   'include/pkgbuild',

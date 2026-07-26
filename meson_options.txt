@@ -4,3 +4,10 @@ option(
   value: 'auto',
   description: 'build libpkgimage-based package parity tools',
 )
+
+option(
+  'planner_adapter',
+  type: 'feature',
+  value: 'auto',
+  description: 'build the libpkgbuild to libpkgplan artifact adapter',
+)
