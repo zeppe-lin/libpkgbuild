@@ -1,5 +1,0 @@
-# Bundled synthetic parity corpus. Paths are relative to this file.
-corpus/parity-basic
-corpus/parity-hardlinks
-corpus/parity-manpages
-corpus/parity-special

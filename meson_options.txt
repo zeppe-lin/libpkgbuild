@@ -1,20 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Alexandr Savca
+# SPDX-License-Identifier: GPL-3.0-or-later
 option(
-  'parity',
-  type: 'feature',
-  value: 'auto',
-  description: 'build libpkgimage-based package parity tools',
+  'link_mode',
+  type: 'combo',
+  choices: ['shared', 'static'],
+  value: 'shared',
+  description: 'How libpkgbuild links against external dependencies',
 )
-
 option(
-  'planner_adapter',
+  'tests',
   type: 'feature',
-  value: 'auto',
-  description: 'build the libpkgbuild to libpkgplan artifact adapter',
-)
-
-option(
-  'manpages',
-  type: 'feature',
-  value: 'auto',
-  description: 'build scdoc manual pages',
+  value: 'enabled',
+  description: 'Build and run the native libpkgbuild test suite',
 )
