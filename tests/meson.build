@@ -248,3 +248,24 @@ if is_variable('libpkgbuild_plan_dep')
   )
   test('planner adapter public header', plan_adapter_header_test)
 endif
+
+adapter_contract_test = find_program('check_adapter_contract.sh')
+test(
+  'planner adapter source contract',
+  adapter_contract_test,
+  args: [meson.project_source_root()],
+)
+
+manpage_contract_test = find_program('check_manpage_contract.sh')
+test(
+  'manual source contract',
+  manpage_contract_test,
+  args: [meson.project_source_root()],
+)
+
+release_metadata_test = find_program('check_release_metadata.sh')
+test(
+  'release metadata',
+  release_metadata_test,
+  args: [meson.project_source_root()],
+)

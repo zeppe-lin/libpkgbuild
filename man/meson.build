@@ -11,7 +11,7 @@ if scdoc.found()
       feed: true,
       capture: true,
       install: true,
-      install_dir: get_option('mandir') / 'man3',
+      install_dir: join_paths(get_option('mandir'), 'man3'),
     )
   endforeach
 endif
