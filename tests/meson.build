@@ -36,4 +36,12 @@ if get_option('tests').enabled()
     test('plan-adapter-header', plan_adapter_header_test)
   endif
 
+  foreach contract : [
+    'check_authority_contract.sh',
+    'check_release_metadata.sh',
+    'check_manpage_contract.sh',
+  ]
+    program = find_program(contract)
+    test(contract, program, args: [meson.project_source_root()])
+  endforeach
 endif

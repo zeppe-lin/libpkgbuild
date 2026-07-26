@@ -1,0 +1,40 @@
+LIBPKGBUILD(3)
+
+# NAME
+
+libpkgbuild - native sealed package-build authority
+
+# SYNOPSIS
+
+*#include <libpkgbuild/libpkgbuild.h>*
+
+# DESCRIPTION
+
+*libpkgbuild* defines immutable build requests and results for native
+Zeppe-Lin packages. Version 1 is an incompatible authority reset.
+
+The library consumes one sealed *libpkgsource* snapshot, verified source
+material, externally resolved and materialized build/check inputs, exact
+architecture choices, and closed build policy. It seals those values into a
+*build_request* before execution begins.
+
+A successful *build_result* binds the request, execution evidence, complete
+intended payload, and exact artifact bytes. A failed result binds the request,
+execution evidence, and failure evidence and carries no payload or artifact.
+
+# NON-GOALS
+
+The core does not parse recipe syntax, inspect collections, resolve packages,
+download sources, execute build programs, create isolation, write archives,
+install payloads, query installed state, or implement historical compatibility.
+
+# ADAPTERS
+
+*libpkgbuild-plan* verifies exact artifact bytes through *libpkgimage*, proves
+that the normalized archive equals the build-owned payload, and projects the
+artifact facts accepted by *libpkgplan*.
+
+# SEE ALSO
+
+*pkgbuild_model*(3), *pkgbuild_request*(3), *pkgbuild_result*(3),
+*pkgbuild_plan_adapter*(3), *libpkgsource*(3)

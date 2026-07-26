@@ -1,143 +1,95 @@
-libpkgbuild authority model
-===========================
+LIBPKGBUILD NATIVE AUTHORITY
+============================
 
-Purpose
--------
+Authority boundary
+------------------
 
-libpkgbuild realizes one immutable package-source snapshot under one explicit
-build policy.  It owns build execution, trusted package-tree normalization,
-archive production, and evidence that identifies the exact published archive
-bytes.  It does not own source interpretation, package archive semantics,
-package planning, target state, or installation effects.
+libpkgsource owns package declarations, package-release identity, requirement
+origins, selected profile identity, exact program bytes, source declarations,
+and architecture constraints. libpkgbuild consumes one sealed source snapshot;
+it never reopens or reparses its recipe document.
 
-Authority graph
----------------
+A resolver owns selection. A resolved package input binds one exact declared
+build or check subject to a concrete package release, source snapshot, upstream
+build result, and artifact. A materialized input additionally binds the exact
+filesystem-tree identity made available to execution. These are separate facts:
 
-The source-to-build path is:
+    declared requirement
+    resolved package input
+    materialized package input
 
-```
-libpkgsource source_snapshot
-        |
-        v
-libpkgbuild BuildDefinition
-        |
-        v
-libpkgbuild BuildReceipt
-        |
-        +-- ArchiveReceipt          writer operation evidence
-        `-- SealedArtifactReceipt   exact published-byte evidence
-```
+Source acquisition is likewise external. A materialized source is admitted only
+when its observed SHA-256 equals the digest carried by the sealed source input.
+Every declared source must appear exactly once in a build request.
 
-A successful BuildReceipt retains the BuildDefinition that issued the build,
-the exact source snapshot through that definition, the package writer receipt,
-and a build-engine seal over the exact archive bytes.  The archive pathname is
-a transport label.  It is not an artifact identity.
+Build request
+-------------
 
-The optional planning composition is:
+A build request is sealed only after all source material, build inputs, check
+inputs, architecture choices, profile facts, build program bytes, and policy are
+complete. Requirement and source vectors are normalized where order is not
+semantic. Program bytes and payload archive order remain exact.
 
-```
-BuildReceipt
-+ libpkgsource-plan candidate projection
-+ libpkgimage exact-byte inspection
------------------------------------------
-libpkgbuild-plan artifact_projection
-```
+The environment policy is closed and typed. Version 1 fixes C.UTF-8, UTC, an
+isolated home, and denied network access, while sealing parallelism, umask, and
+an optional SOURCE_DATE_EPOCH. There is no arbitrary inherited environment map.
+An execution layer may realize this policy but may not add undeclared ambient
+variables as build authority.
 
-libpkgbuild-plan owns only the translation from completed build evidence into
-planner artifact vocabulary.  It does not plan a package operation and does not
-open source collections independently.
+Build result
+------------
 
-Exact artifact seal
--------------------
+A successful result requires all of:
 
-The package writer reports where it published an archive, the byte count it
-observed, and the selected archive encoding.  After the writer returns, the
-engine opens that output without following a final symbolic link, hashes the
-opened regular file with SHA-256, and verifies that size and stable file metadata
-did not change during hashing.  The resulting SealedArtifactReceipt records:
+* the exact sealed request;
+* execution evidence identity;
+* a complete ordered intended payload manifest;
+* exact artifact byte count and SHA-256;
+* artifact encoding; and
+* an identity binding request, payload, and artifact.
 
-* the exact absolute output pathname used as a label;
-* the exact byte count observed through the retained descriptor; and
-* the SHA-256 digest of those bytes.
+A failed result contains no payload or artifact and requires separate failure
+evidence. Partial result authority cannot be constructed through the public API.
 
-The engine rejects a writer receipt whose pathname, byte count, object type, or
-published object does not match the requested output.  Package planning never
-accepts writer success alone as artifact authority.
+The payload model retains canonical package paths, object type, mode, numeric
+ownership, size, modification time, regular-content digest, symbolic-link
+target, hard-link topology, and device numbers. Duplicate paths are rejected.
+A hard link must target an earlier regular payload entry.
+
+Artifact pathnames and filename conventions are excluded from identity. Exact
+retained bytes are the artifact evidence. The core does not claim that archive
+bytes represent the declared payload; that statement requires archive
+inspection.
 
 Planner adapter
 ---------------
 
-libpkgbuild-plan accepts one successful BuildReceipt and one archive backend. It:
+libpkgbuild-plan accepts a successful build result plus a transport pathname.
+It verifies the pathname byte count and exact SHA-256, opens the archive through
+libpkgimage, compares every normalized image entry with the build payload, and
+then projects:
 
-1. projects the retained source snapshot through libpkgsource-plan;
-2. verifies package coordinates and snapshot provenance;
-3. asks libpkgimage to inspect the sealed artifact pathname while requiring the
-   exact build-engine digest;
-4. issues the planner artifact identity from the exact archive digest;
-5. issues an artifact-manifest identity over source, candidate, archive, image,
-   and inspection authority; and
-6. returns a lifetime-bound value retaining all of those inputs.
+* source-owned candidate control through libpkgsource-plan;
+* exact artifact-byte identity; and
+* an artifact-manifest identity binding the build result, candidate, payload,
+  image, and inspection receipt.
 
-The adapter rejects missing or malformed artifact seals, path or byte-count
-mismatches, source/candidate mismatches, changed archive bytes, image/receipt
-mismatches, and planner vocabulary rejection.
+Build/check inputs, source material, profile provenance, environment policy, and
+execution evidence do not become planner candidate control.
 
-Non-authorities
----------------
+Installed-state transition
+--------------------------
 
-libpkgbuild and libpkgbuild-plan do not:
+libpkgstate 1.0.0 already defines build_provenance domains for build inputs,
+build results, artifacts, and planner manifests. A later destination-owned
+libpkgstate-build adapter should translate libpkgbuild values into those typed
+references. libpkgbuild does not construct installed receipts and does not
+invent filesystem application outcomes.
 
-* derive a package artifact from its filename;
-* claim that an archive pathname is immutable;
-* replace libpkgimage archive inspection;
-* derive target observations or ownership;
-* select installation, upgrade, or removal policy;
-* construct an installed package record; or
-* apply package effects.
+Non-goals for version 1
+-----------------------
 
-Dependency direction
---------------------
-
-The core library depends on libpkgsource and its existing execution
-prerequisites.  It does not depend on libpkgplan or libpkgimage.
-
-The optional libpkgbuild-plan adapter depends on:
-
-```
-libpkgbuild
-libpkgsource-plan
-libpkgimage
-libpkgplan
-```
-
-Disabling the adapter leaves the core public headers, pkg-config closure, and
-shared-library dependency graph unchanged apart from the intentional
-SealedArtifactReceipt ABI introduced by this release.
-
-Meson ownership topology
-------------------------
-
-The Meson graph distinguishes project-owned executables from dependency-owned
-executables.  `pkgbuild-pkgfile` is configured once by libpkgbuild.  Its
-build-tree pathname belongs to the configured file target, and its installed
-pathname is `${prefix}/${libexecdir}/pkgbuild-pkgfile`.  Tests and non-installed
-tools receive the build-tree target rather than reaching back to the source
-template.
-
-`pkgbuild-stage-scan` is similarly owned by one executable target.  Consumers
-use `stage_scanner.full_path()` in the build tree and the explicit libexec path
-after installation.  No test or tool guesses either pathname from the source
-tree layout.
-
-The planner-adapter regression uses `pkgsource::pkgfile_backend`.  Its worker is
-therefore the dependency-owned `pkgsource-pkgfile-worker`, not
-`pkgbuild-pkgfile`.  Libpkgsource publishes the worker location as an internal
-Meson dependency variable for subproject/build-tree composition and as the
-`pkgfile_worker` pkg-config variable for installed composition.  Libpkgbuild
-queries that contract through `dependency.get_variable()` and does not inspect
-a sibling source or build directory.
-
-Feature gates remain orthogonal.  `planner_adapter` controls
-`libpkgbuild-plan`; `parity` controls semantic parity tools.  Shared use of
-libpkgimage is a dependency overlap, not permission for either option to enable
-the other surface.
+Version 1 intentionally contains no process executor, Linux namespaces,
+Landlock, cgroups, source downloader, archive writer, transformation pipeline,
+package installer, dependency resolver, collection scanner, Pkgfile parser, or
+legacy importer.

@@ -14,6 +14,12 @@ option(
   description: 'Build and run the native libpkgbuild test suite',
 )
 option(
+  'man_pages',
+  type: 'feature',
+  value: 'auto',
+  description: 'Build manual pages with scdoc',
+)
+option(
   'planner_adapter',
   type: 'feature',
   value: 'disabled',

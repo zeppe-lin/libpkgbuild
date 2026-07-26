@@ -1,0 +1,32 @@
+PKGBUILD_MODEL(3)
+
+# NAME
+
+pkgbuild_model - native package-build values and identity domains
+
+# DESCRIPTION
+
+A *materialized_source* binds one source declaration to observed SHA-256 bytes.
+The observed digest must equal the digest carried by the sealed source snapshot.
+
+A *resolved_package_input* binds one exact build or check package subject to a
+concrete package release, source snapshot, upstream build result, and artifact.
+A *materialized_package_input* additionally binds the filesystem-tree identity
+made available to execution.
+
+An *environment_policy* is closed and typed. Version 1 fixes C.UTF-8, UTC,
+denied network access, and an isolated home. Parallelism, umask, and optional
+SOURCE_DATE_EPOCH are sealed. Ambient name/value maps are not authority.
+
+A *payload_manifest* is an ordered complete set of canonical package objects.
+It retains path, type, mode, numeric ownership, size, timestamp, regular-content
+digest, symbolic-link target, hard-link topology, and device numbers.
+
+A *sealed_artifact* records encoding, compression, exact byte count, and SHA-256.
+Its pathname is not part of the value.
+
+All identities use domain-separated canonical SHA-256 records.
+
+# SEE ALSO
+
+*libpkgbuild*(3), *pkgbuild_request*(3), *pkgbuild_result*(3)

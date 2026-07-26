@@ -1,41 +1,32 @@
-libpkgbuild history
+LIBPKGBUILD HISTORY
 ===================
 
-0.9.0
------
+## 1.0.0
 
-The 0.9.0 release establishes exact build-artifact authority and the optional
-planner adapter.
+First native Zeppe-Lin package-build authority release.
 
-Core changes:
+* Replaced the Pkgfile/pkgmk-shaped public API with sealed native requests and
+  results.
+* Bound verified source material directly to libpkgsource 1.0.0 declarations.
+* Distinguished declared requirements, resolved package inputs, and
+  materialized package trees.
+* Added exact build/check scope validation, architecture selection, profile
+  retention, and a closed hermetic environment policy.
+* Added complete intended payload manifests, exact artifact-byte authority,
+  success/failure evidence, and domain-separated identities.
+* Rebuilt libpkgbuild-plan around exact archive inspection and payload equality.
+* Removed Pkgfile workers, fakeroot, MD5, pkgmk parity, sidecar files, mutable
+  workspaces, source acquisition, execution, transformation, and archive-writing
+  responsibilities from the authoritative library.
 
-. snapshot-bound BuildReceipt now carries a SealedArtifactReceipt;
-. the engine verifies the package writer output path and byte count;
-. the engine opens the published regular file without following a final
-  symbolic link;
-. SHA-256 is computed over the exact retained bytes;
-. mutation during sealing is rejected; and
-. the core shared-library SONAME advances from 0 to 1 for the BuildReceipt ABI
-  change.
+Core ABI: libpkgbuild.so.2.
+Planner adapter ABI: libpkgbuild-plan.so.1.
 
-Optional composition:
+There is no in-library upgrade path from the 0.x API. Native callers must
+construct sealed source, resolver, materialization, execution, and artifact
+evidence. Historical compatibility belongs to separate migration tools.
 
-. libpkgbuild-plan projects the retained source snapshot through
-  libpkgsource-plan 0.2.0;
-. libpkgimage 0.3.0 reopens the artifact with the build digest as a mandatory
-  exact-byte precondition;
-. planner artifact identity identifies exact archive bytes;
-. planner artifact-manifest identity binds source, candidate, archive, image,
-  and inspection evidence; and
-. libpkgbuild-plan begins at SONAME 0 as its first public ABI.
+## 0.9.0
 
-The archive pathname remains a label.  libpkgbuild does not derive package
-identity from naming conventions and does not acquire package-planning or
-installation authority.
-
-0.8.8
------
-
-The 0.8.8 development release completed the snapshot-bound build-definition
-seam, sealed private build workspaces, and differential parity composition over
-source and artifact authorities.
+Last compatibility-shaped development release. It is retained only as project
+history and is not a native authority predecessor that version 1 can import.

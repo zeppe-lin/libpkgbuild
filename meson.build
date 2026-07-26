@@ -76,4 +76,5 @@ subdir('src')
 if libpkgsource_plan_dep.found() and libpkgimage_dep.found() and libpkgplan_dep.found()
   subdir('adapter')
 endif
+subdir('man')
 subdir('tests')
