@@ -4,4 +4,5 @@
 #include <libpkgbuild/identity.h>
 #include <libpkgbuild/libpkgbuild.h>
 #include <libpkgbuild/model.h>
+#include <libpkgbuild/request.h>
 int main() { return 0; }

@@ -4,7 +4,7 @@ public_inc = include_directories('../include')
 private_inc = include_directories('.')
 libpkgbuild = library(
   'pkgbuild',
-  ['error.cpp', 'identity.cpp', 'identity_support.cpp', 'model.cpp'],
+  ['error.cpp', 'identity.cpp', 'identity_support.cpp', 'model.cpp', 'request.cpp'],
   include_directories: [public_inc, private_inc],
   dependencies: [libpkgsource_dep, libcrypto_dep],
   version: meson.project_version(),
@@ -22,6 +22,7 @@ install_headers(
   '../include/libpkgbuild/identity.h',
   '../include/libpkgbuild/libpkgbuild.h',
   '../include/libpkgbuild/model.h',
+  '../include/libpkgbuild/request.h',
   subdir: 'libpkgbuild',
 )
 pkgconf.generate(
