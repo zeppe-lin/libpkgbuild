@@ -13,3 +13,9 @@ option(
   value: 'enabled',
   description: 'Build and run the native libpkgbuild test suite',
 )
+option(
+  'planner_adapter',
+  type: 'feature',
+  value: 'disabled',
+  description: 'Build the optional verified libpkgplan artifact adapter',
+)
