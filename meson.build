@@ -10,6 +10,8 @@ project(
   ],
 )
 
+pkgconfig = import('pkgconfig')
+
 libpkgsource_dep = dependency(
   'libpkgsource',
   version: '>=0.1.0',
@@ -121,7 +123,6 @@ install_data(
   install_mode: 'rwxr-xr-x',
 )
 
-pkgconfig = import('pkgconfig')
 pkgconfig.generate(
   libpkgbuild,
   name: 'libpkgbuild',
