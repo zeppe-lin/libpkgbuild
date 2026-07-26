@@ -113,3 +113,31 @@ libpkgplan
 Disabling the adapter leaves the core public headers, pkg-config closure, and
 shared-library dependency graph unchanged apart from the intentional
 SealedArtifactReceipt ABI introduced by this release.
+
+Meson ownership topology
+------------------------
+
+The Meson graph distinguishes project-owned executables from dependency-owned
+executables.  `pkgbuild-pkgfile` is configured once by libpkgbuild.  Its
+build-tree pathname belongs to the configured file target, and its installed
+pathname is `${prefix}/${libexecdir}/pkgbuild-pkgfile`.  Tests and non-installed
+tools receive the build-tree target rather than reaching back to the source
+template.
+
+`pkgbuild-stage-scan` is similarly owned by one executable target.  Consumers
+use `stage_scanner.full_path()` in the build tree and the explicit libexec path
+after installation.  No test or tool guesses either pathname from the source
+tree layout.
+
+The planner-adapter regression uses `pkgsource::pkgfile_backend`.  Its worker is
+therefore the dependency-owned `pkgsource-pkgfile-worker`, not
+`pkgbuild-pkgfile`.  Libpkgsource publishes the worker location as an internal
+Meson dependency variable for subproject/build-tree composition and as the
+`pkgfile_worker` pkg-config variable for installed composition.  Libpkgbuild
+queries that contract through `dependency.get_variable()` and does not inspect
+a sibling source or build directory.
+
+Feature gates remain orthogonal.  `planner_adapter` controls
+`libpkgbuild-plan`; `parity` controls semantic parity tools.  Shared use of
+libpkgimage is a dependency overlap, not permission for either option to enable
+the other surface.

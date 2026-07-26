@@ -288,6 +288,30 @@ The offline vertical slice can also be compiled directly:
 ./tests/run-example.sh
 ```
 
+Meson worker topology
+---------------------
+
+The build graph owns two installed libexec programs:
+
+* `pkgbuild-pkgfile`, configured once in the build directory and installed as
+  `${prefix}/${libexecdir}/pkgbuild-pkgfile`; and
+* `pkgbuild-stage-scan`, built once as a Meson executable target and installed
+  as `${prefix}/${libexecdir}/pkgbuild-stage-scan`.
+
+Build-tree tests and non-installed tools receive those target-owned build paths.
+They do not execute `libpkgbuild/pkgbuild-pkgfile.in` from the source tree or
+reconstruct a scanner pathname.
+
+The planner adapter has a separate worker dependency.  Its tests construct
+`pkgsource::pkgfile_backend`, so they obtain the `pkgsource-pkgfile-worker`
+location from `libpkgsource` dependency metadata.  They never substitute the
+`pkgbuild-pkgfile` worker, whose protocol belongs to this project.
+
+The `parity` and `planner_adapter` options are independent feature gates.  A
+parity-only build does not create the planner adapter, and a planner-only build
+does not create parity tools merely because both compositions use
+`libpkgimage`.
+
 Sealed artifact authority
 -------------------------
 

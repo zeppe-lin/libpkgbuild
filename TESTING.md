@@ -35,6 +35,27 @@ The adapter public header is also compiled independently.  Shared and static
 qualification must verify that `libpkgbuild.pc` does not gain planner or image
 dependencies while `libpkgbuild-plan.pc` publishes the complete adapter closure.
 
+Meson topology qualification
+----------------------------
+
+The topology contract checks that:
+
+. pkg-config support is imported before adapter metadata is generated;
+. the configured `pkgbuild-pkgfile` worker has one build-tree path and one
+  installed libexec path;
+. the stage scanner has one executable target and explicit build/install paths;
+. core tests receive the project-owned worker and scanner targets;
+. planner-adapter tests obtain `pkgsource-pkgfile-worker` from libpkgsource
+  dependency metadata;
+. parity and planner feature gates remain independent; and
+. no test reaches into a source template or guesses a sibling build path.
+
+The forge-neutral qualification matrix builds shared and static variants with
+both optional surfaces enabled, runs all tests, installs through `DESTDIR`, and
+checks that both project-owned libexec programs are present and executable.  It
+then configures core-only, planner-only, and parity-only profiles to prove that
+an explicit feature disable remains authoritative.
+
 Compiler and release gates
 --------------------------
 

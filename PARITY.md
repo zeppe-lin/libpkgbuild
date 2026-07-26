@@ -117,7 +117,7 @@ explicit source acquisition:
 pkgbuild-parity \
     --pkgmk /usr/sbin/pkgmk \
     --pkgbuild "$PWD/build/pkgbuild-example" \
-    --helper "$PWD/libpkgbuild/pkgbuild-pkgfile.in" \
+    --helper "$PWD/build/pkgbuild-pkgfile" \
     --scanner "$PWD/build/pkgbuild-stage-scan" \
     --fakeroot /usr/bin/fakeroot \
     --strip /usr/bin/strip \
