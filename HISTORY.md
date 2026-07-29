@@ -1,6 +1,24 @@
 LIBPKGBUILD HISTORY
 ===================
 
+## 2.0.0
+
+Source-authority ABI migration release.
+
+* Rebuilt exact build requests and results against `libpkgsource 2.0.0`.
+* Preserved the complete source snapshot, including optional exact check
+  program authority, without interpreting or executing that program.
+* Advanced the core ABI to `libpkgbuild.so.3`: `build_request` and
+  `build_result` embed the enlarged source snapshot by value.
+* Advanced the planner adapter ABI to `libpkgbuild-plan.so.2` because
+  `artifact_projection` embeds a complete build result.
+* Raised dependency floors to `libpkgsource >= 2.0.0` and
+  `libpkgsource-plan >= 2.0.0`.
+* Preserved build/result identity domains and artifact admission semantics.
+
+Core ABI: libpkgbuild.so.3.
+Planner adapter ABI: libpkgbuild-plan.so.2.
+
 ## 1.0.0
 
 First native Zeppe-Lin package-build authority release.

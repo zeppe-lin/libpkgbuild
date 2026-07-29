@@ -15,7 +15,7 @@ do
     fi
 done
 
-grep -F 'libpkgsource >= 1.0.0' "$root/src/meson.build" >/dev/null
+grep -F 'libpkgsource >= 2.0.0' "$root/src/meson.build" >/dev/null
 grep -F 'libpkgbuild/source-material/v1' "$root/src/model.cpp" >/dev/null
 grep -F 'libpkgbuild/build-request/v1' "$root/src/request.cpp" >/dev/null
 grep -F 'libpkgbuild/build-result/v1' "$root/src/result.cpp" >/dev/null

@@ -11,14 +11,14 @@ require() {
         exit 1
     }
 }
-require "$root/meson.build" "  version: '1.0.0',"
-require "$root/src/meson.build" "  soversion: '2',"
-require "$root/adapter/meson.build" "  soversion: '1',"
-require "$root/src/meson.build" "'libpkgsource >= 1.0.0'"
-require "$root/adapter/meson.build" "'libpkgsource-plan >= 1.0.0'"
+require "$root/meson.build" "  version: '2.0.0',"
+require "$root/src/meson.build" "  soversion: '3',"
+require "$root/adapter/meson.build" "  soversion: '2',"
+require "$root/src/meson.build" "'libpkgsource >= 2.0.0'"
+require "$root/adapter/meson.build" "'libpkgsource-plan >= 2.0.0'"
 require "$root/adapter/meson.build" "'libpkgimage >= 0.3.0'"
 require "$root/adapter/meson.build" "'libpkgplan >= 0.2.0'"
-require "$root/HISTORY.md" '## 1.0.0'
-require "$root/README.md" 'Version 1 is intentionally incompatible'
+require "$root/HISTORY.md" '## 2.0.0'
+require "$root/README.md" 'Version 2 is intentionally incompatible'
 require "$root/DESIGN.md" 'libpkgstate 1.0.0'
 require "$root/man/libpkgbuild.3.scdoc" 'Version 1 is an incompatible authority reset.'

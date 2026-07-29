@@ -1,8 +1,8 @@
-LIBPKGBUILD 1.0.0
+LIBPKGBUILD 2.0.0
 =================
 
 libpkgbuild defines the native Zeppe-Lin package-build authority model.
-Version 1 is intentionally incompatible with the former Pkgfile/pkgmk-shaped
+Version 2 is intentionally incompatible with the former Pkgfile/pkgmk-shaped
 execution engine.
 
 The core library seals:

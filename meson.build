@@ -3,7 +3,7 @@
 project(
   'libpkgbuild',
   'cpp',
-  version: '1.0.0',
+  version: '2.0.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.2.0',
   default_options: [
@@ -28,7 +28,7 @@ pkgconf = import('pkgconfig')
 libcrypto_dep = dependency('libcrypto', required: true, static: want_static)
 libpkgsource_dep = dependency(
   'libpkgsource',
-  version: '>=1.0.0',
+  version: '>=2.0.0',
   required: true,
   static: want_static,
   fallback: ['libpkgsource', 'libpkgsource_dep'],
@@ -39,7 +39,7 @@ libpkgsource_dep = dependency(
 )
 libpkgsource_plan_dep = dependency(
   'libpkgsource-plan',
-  version: '>=1.0.0',
+  version: '>=2.0.0',
   required: get_option('planner_adapter'),
   static: want_static,
   fallback: ['libpkgsource', 'libpkgsource_plan_dep'],

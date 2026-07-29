@@ -16,7 +16,7 @@ libpkgbuild = library(
   include_directories: [public_inc, private_inc],
   dependencies: [libpkgsource_dep, libcrypto_dep],
   version: meson.project_version(),
-  soversion: '2',
+  soversion: '3',
   install: true,
 )
 
@@ -43,6 +43,6 @@ pkgconf.generate(
   filebase: 'libpkgbuild',
   description: 'Native sealed package-build authority model',
   subdirs: '.',
-  requires: ['libpkgsource >= 1.0.0'],
+  requires: ['libpkgsource >= 2.0.0'],
   requires_private: ['libcrypto'],
 )
