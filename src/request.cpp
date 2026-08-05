@@ -7,9 +7,8 @@
 #include "identity_support.h"
 
 #include <algorithm>
-#include <map>
+#include <memory>
 #include <set>
-#include <tuple>
 #include <utility>
 
 namespace pkgbuild {
@@ -20,43 +19,69 @@ namespace {
   throw error(error_code::invalid_request, std::move(message));
 }
 
-source_material_set_identity material_set_id(
-    const pkgsource::source_snapshot& source,
-    const std::vector<materialized_source>& materials)
+const pkgresolve::selected_package& require_selection(
+    const pkgresolve::resolution_result& resolution,
+    const pkgresolve::package_selection_identity& identity)
+{
+  const pkgresolve::selected_package* result = nullptr;
+  for (const auto& selection : resolution.selections()) {
+    if (selection.identity() != identity)
+      continue;
+    if (result != nullptr)
+      invalid("resolution duplicates a package selection identity");
+    result = &selection;
+  }
+  if (result == nullptr)
+    invalid("build subject or requirement names an absent package selection");
+  return *result;
+}
+
+input_scope input_scope_from(const pkgsource::requirement_scope& scope)
+{
+  switch (scope.kind()) {
+  case pkgsource::requirement_scope_kind::build:
+    return input_scope::build;
+  case pkgsource::requirement_scope_kind::check:
+    return input_scope::check;
+  default:
+    invalid("build input uses a non-build requirement scope");
+  }
+}
+
+build_input_identity input_id(
+    input_scope scope,
+    const pkgresolve::requirement_edge& edge,
+    const pkgresolve::selected_package& selection)
 {
   detail::identity_writer writer;
-  writer.text("libpkgbuild/source-material-set/v1");
-  writer.text(source.identity().hex());
-  writer.number(materials.size());
-  for (const auto& material : materials) {
-    writer.text(material.declaration().local_name());
-    writer.text(material.identity().hex());
-  }
-  return source_material_set_identity::from_sha256(writer.finish());
+  writer.text("libpkgbuild/build-input/1");
+  writer.text(to_string(scope));
+  writer.text(edge.identity().hex());
+  writer.text(selection.identity().hex());
+  return build_input_identity::from_sha256(writer.finish());
 }
 
 build_input_set_identity input_set_id(
-    const pkgsource::source_snapshot& source,
-    const std::vector<materialized_package_input>& inputs)
+    const pkgresolve::resolution_result_identity& resolution,
+    const pkgresolve::package_selection_identity& subject,
+    const std::vector<build_input>& inputs)
 {
   detail::identity_writer writer;
-  writer.text("libpkgbuild/build-input-set/v1");
-  writer.text(source.identity().hex());
+  writer.text("libpkgbuild/build-input-set/1");
+  writer.text(resolution.hex());
+  writer.text(subject.hex());
   writer.number(inputs.size());
-  for (const auto& input : inputs) {
-    writer.text(to_string(input.resolved().scope()));
-    writer.text(input.resolved().declared_package().name());
-    writer.text(input.resolved().identity().hex());
-    writer.text(input.tree().hex());
-  }
+  for (const auto& input : inputs)
+    writer.text(input.identity().hex());
   return build_input_set_identity::from_sha256(writer.finish());
 }
 
-build_policy_identity policy_id(const environment_policy& environment,
-                                output_layout_kind output_layout)
+build_policy_identity policy_id(
+    const environment_policy& environment,
+    output_layout_kind output_layout)
 {
   detail::identity_writer writer;
-  writer.text("libpkgbuild/build-policy/v1");
+  writer.text("libpkgbuild/build-policy/1");
   writer.text(environment.identity().hex());
   writer.text(to_string(output_layout));
   return build_policy_identity::from_sha256(writer.finish());
@@ -64,167 +89,233 @@ build_policy_identity policy_id(const environment_policy& environment,
 
 build_request_identity request_id(
     const pkgsource::source_snapshot& source,
-    const source_material_set& sources,
     const build_input_set& inputs,
     const architecture_binding& architectures,
     const build_policy& policy)
 {
   detail::identity_writer writer;
-  writer.text("libpkgbuild/build-request/v1");
+  writer.text("libpkgbuild/build-request/1");
   writer.text(source.identity().hex());
-  writer.text(source.recipe().identity().hex());
-  writer.text(source.recipe().release().identity().hex());
-  writer.text(source.recipe().build_program().content_digest().hex());
-  writer.text(sources.identity().hex());
   writer.text(inputs.identity().hex());
   writer.text(architectures.build().name());
   writer.text(architectures.target().name());
-  writer.number(source.recipe().selected_build_profiles().size());
-  for (const auto& profile : source.recipe().selected_build_profiles()) {
-    writer.text(profile.profile().name());
-    writer.text(profile.identity().hex());
-  }
   writer.text(policy.identity().hex());
   return build_request_identity::from_sha256(writer.finish());
 }
 
-using requirement_key = std::pair<input_scope, std::string>;
-
-std::set<requirement_key> expected_inputs(const pkgsource::source_snapshot& source)
+bool contains_architecture(
+    const std::vector<pkgsource::architecture_reference>& declared,
+    const pkgsource::architecture_reference& selected)
 {
-  std::set<requirement_key> expected;
-  for (const auto& requirement : source.recipe().build_requirements())
-    expected.emplace(input_scope::build, requirement.package().name());
-  for (const auto& requirement : source.recipe().check_requirements())
-    expected.emplace(input_scope::check, requirement.package().name());
-  return expected;
+  return std::find(declared.begin(), declared.end(), selected) != declared.end();
 }
 
-bool allowed(const std::vector<pkgsource::architecture_reference>& declared,
-             const pkgsource::architecture_reference& selected)
+std::vector<pkgsource::resolved_requirement> direct_requirements(
+    const pkgsource::source_snapshot& source)
 {
-  return declared.empty() ||
-      std::find(declared.begin(), declared.end(), selected) != declared.end();
+  auto result = source.recipe().build_requirements();
+  auto checks = source.recipe().check_requirements();
+  result.insert(result.end(), checks.begin(), checks.end());
+  std::sort(result.begin(), result.end());
+  return result;
 }
 
 } // namespace
 
-source_material_set::source_material_set(
-    std::vector<materialized_source> materials,
-    source_material_set_identity identity)
-    : materials_(std::move(materials)), identity_(std::move(identity))
-{
-}
-
-source_material_set source_material_set::seal(
-    const pkgsource::source_snapshot& source,
-    std::vector<materialized_source> materials)
-{
-  const auto& declared = source.recipe().sources();
-  if (materials.size() != declared.size())
-    invalid("source material set is incomplete or contains extra material");
-
-  std::sort(materials.begin(), materials.end(),
-            [](const materialized_source& lhs, const materialized_source& rhs) {
-              return lhs.declaration().local_name() < rhs.declaration().local_name();
-            });
-  std::vector<pkgsource::source_input> expected = declared;
-  std::sort(expected.begin(), expected.end(),
-            [](const pkgsource::source_input& lhs, const pkgsource::source_input& rhs) {
-              return lhs.local_name() < rhs.local_name();
-            });
-
-  for (std::size_t index = 0; index < expected.size(); ++index) {
-    if (materials[index].declaration() != expected[index])
-      invalid("source material does not match the sealed source declaration: " +
-              expected[index].local_name());
-    if (index > 0 &&
-        materials[index - 1].declaration().local_name() ==
-            materials[index].declaration().local_name())
-      invalid("source material set contains a duplicate local name");
+struct build_input::impl final {
+  impl(input_scope scope_value,
+       pkgresolve::requirement_edge requirement_value,
+       pkgresolve::selected_package selection_value,
+       build_input_identity identity_value)
+      : scope(scope_value), requirement(std::move(requirement_value)),
+        selection(std::move(selection_value)), identity(std::move(identity_value))
+  {
   }
-  auto identity = material_set_id(source, materials);
-  return source_material_set(std::move(materials), std::move(identity));
-}
+  input_scope scope;
+  pkgresolve::requirement_edge requirement;
+  pkgresolve::selected_package selection;
+  build_input_identity identity;
+};
 
-const std::vector<materialized_source>& source_material_set::materials() const noexcept { return materials_; }
-const source_material_set_identity& source_material_set::identity() const noexcept { return identity_; }
-
-build_input_set::build_input_set(
-    std::vector<materialized_package_input> inputs,
-    build_input_set_identity identity)
-    : inputs_(std::move(inputs)), identity_(std::move(identity))
+build_input::build_input(std::shared_ptr<const impl> value)
+    : impl_(std::move(value))
 {
 }
+build_input::build_input(const build_input&) noexcept = default;
+build_input::build_input(build_input&&) noexcept = default;
+build_input& build_input::operator=(const build_input&) noexcept = default;
+build_input& build_input::operator=(build_input&&) noexcept = default;
+build_input::~build_input() = default;
+input_scope build_input::scope() const noexcept { return impl_->scope; }
+const pkgresolve::requirement_edge& build_input::requirement() const noexcept
+{ return impl_->requirement; }
+const pkgresolve::selected_package& build_input::selection() const noexcept
+{ return impl_->selection; }
+const pkgsource::package_reference& build_input::package() const noexcept
+{ return impl_->selection.package(); }
+const build_input_identity& build_input::identity() const noexcept
+{ return impl_->identity; }
+bool operator==(const build_input& lhs, const build_input& rhs) noexcept
+{ return lhs.identity() == rhs.identity(); }
+bool operator!=(const build_input& lhs, const build_input& rhs) noexcept
+{ return !(lhs == rhs); }
+bool operator<(const build_input& lhs, const build_input& rhs) noexcept
+{ return lhs.identity() < rhs.identity(); }
 
-build_input_set build_input_set::seal(
-    const pkgsource::source_snapshot& source,
-    std::vector<materialized_package_input> inputs)
-{
-  std::sort(inputs.begin(), inputs.end(),
-            [](const materialized_package_input& lhs,
-               const materialized_package_input& rhs) {
-              return std::make_tuple(lhs.resolved().scope(),
-                                     lhs.resolved().declared_package().name(),
-                                     lhs.resolved().identity(), lhs.tree()) <
-                     std::make_tuple(rhs.resolved().scope(),
-                                     rhs.resolved().declared_package().name(),
-                                     rhs.resolved().identity(), rhs.tree());
-            });
-
-  std::set<requirement_key> observed;
-  for (const auto& input : inputs) {
-    const requirement_key key{input.resolved().scope(),
-                              input.resolved().declared_package().name()};
-    if (!observed.insert(key).second)
-      invalid("build input set contains a duplicate requirement binding");
+struct build_input_set::impl final {
+  impl(pkgresolve::selected_package subject_value,
+       pkgresolve::resolution_result_identity resolution_value,
+       std::vector<build_input> inputs_value,
+       build_input_set_identity identity_value)
+      : subject(std::move(subject_value)), resolution(std::move(resolution_value)),
+        inputs(std::move(inputs_value)), identity(std::move(identity_value))
+  {
   }
-  if (observed != expected_inputs(source))
-    invalid("build input set does not exactly satisfy sealed build/check requirements");
+  pkgresolve::selected_package subject;
+  pkgresolve::resolution_result_identity resolution;
+  std::vector<build_input> inputs;
+  build_input_set_identity identity;
+};
 
-  auto identity = input_set_id(source, inputs);
-  return build_input_set(std::move(inputs), std::move(identity));
+build_input_set::build_input_set(std::shared_ptr<const impl> value)
+    : impl_(std::move(value))
+{
+}
+build_input_set::build_input_set(const build_input_set&) noexcept = default;
+build_input_set::build_input_set(build_input_set&&) noexcept = default;
+build_input_set& build_input_set::operator=(const build_input_set&) noexcept = default;
+build_input_set& build_input_set::operator=(build_input_set&&) noexcept = default;
+build_input_set::~build_input_set() = default;
+
+build_input_set build_input_set::admit(
+    const pkgresolve::resolution_result& resolution,
+    const pkgresolve::package_selection_identity& subject_identity)
+{
+  const auto& subject = require_selection(resolution, subject_identity);
+  const auto* candidate = subject.candidate();
+  if (candidate == nullptr)
+    invalid("build subject must retain catalog source authority");
+  if (candidate->source().identity() != subject.source_snapshot() ||
+      candidate->release().identity() != subject.release().identity() ||
+      candidate->package() != subject.package())
+    invalid("build subject contradicts its catalog authority");
+  const pkgresolve::architecture_context expected_architectures(
+      resolution.request().architectures().build(),
+      resolution.request().architectures().selected_target(
+          subject.environment()));
+  if (subject.architectures() != expected_architectures)
+    invalid("build subject architecture context differs from resolution request");
+
+  const auto requirements = direct_requirements(candidate->source());
+  std::vector<build_input> inputs;
+  std::set<pkgresolve::requirement_edge_identity> consumed;
+  inputs.reserve(requirements.size());
+
+  for (const auto& requirement : requirements) {
+    const pkgresolve::requirement_edge* match = nullptr;
+    const pkgresolve::selected_package* required = nullptr;
+    for (const auto& edge : resolution.edges()) {
+      if (edge.issuer() != subject_identity ||
+          edge.environment() != pkgresolve::resolution_environment::build ||
+          edge.scope() != requirement.scope())
+        continue;
+      const auto& selected = require_selection(resolution, edge.required());
+      if (selected.package() != requirement.package())
+        continue;
+      if (match != nullptr)
+        invalid("build requirement has ambiguous resolver authority");
+      match = &edge;
+      required = &selected;
+    }
+    if (match == nullptr || required == nullptr)
+      invalid("build requirement lacks exact resolver authority");
+    if (required->environment() != pkgresolve::resolution_environment::build)
+      invalid("build requirement selected a non-build environment package");
+    if (match->witness().kind() !=
+            pkgresolve::requirement_authority_kind::catalog_source ||
+        !match->witness().catalog_source() ||
+        *match->witness().catalog_source() != candidate->source().identity() ||
+        match->witness().catalog_origins() != requirement.origins())
+      invalid("build requirement witness differs from source authority");
+    if (!consumed.insert(match->identity()).second)
+      invalid("resolver edge satisfies more than one build requirement");
+
+    const auto scope = input_scope_from(requirement.scope());
+    auto identity = input_id(scope, *match, *required);
+    inputs.push_back(build_input(std::make_shared<build_input::impl>(
+        scope, *match, *required, std::move(identity))));
+  }
+
+  for (const auto& edge : resolution.edges()) {
+    if (edge.issuer() != subject_identity ||
+        edge.environment() != pkgresolve::resolution_environment::build)
+      continue;
+    const auto kind = edge.scope().kind();
+    if (kind != pkgsource::requirement_scope_kind::build &&
+        kind != pkgsource::requirement_scope_kind::check)
+      continue;
+    if (consumed.find(edge.identity()) == consumed.end())
+      invalid("resolution contains an undeclared direct build input");
+  }
+
+  std::sort(inputs.begin(), inputs.end());
+  auto identity = input_set_id(resolution.identity(), subject_identity, inputs);
+  return build_input_set(std::make_shared<impl>(
+      subject, resolution.identity(), std::move(inputs), std::move(identity)));
 }
 
-const std::vector<materialized_package_input>& build_input_set::inputs() const noexcept { return inputs_; }
-std::vector<materialized_package_input> build_input_set::for_scope(input_scope scope) const
+const pkgresolve::selected_package& build_input_set::subject() const noexcept
+{ return impl_->subject; }
+const pkgresolve::resolution_result_identity&
+build_input_set::resolution() const noexcept { return impl_->resolution; }
+const std::vector<build_input>& build_input_set::inputs() const noexcept
+{ return impl_->inputs; }
+std::vector<build_input> build_input_set::for_scope(input_scope scope) const
 {
-  std::vector<materialized_package_input> result;
-  for (const auto& input : inputs_) {
-    if (input.resolved().scope() == scope)
+  std::vector<build_input> result;
+  for (const auto& input : impl_->inputs)
+    if (input.scope() == scope)
       result.push_back(input);
-  }
   return result;
 }
-const build_input_set_identity& build_input_set::identity() const noexcept { return identity_; }
+const build_input_set_identity& build_input_set::identity() const noexcept
+{ return impl_->identity; }
 
-architecture_binding::architecture_binding(
-    std::vector<pkgsource::architecture_reference> declared_build,
-    std::vector<pkgsource::architecture_reference> declared_target,
-    pkgsource::architecture_reference build,
-    pkgsource::architecture_reference target)
-    : declared_build_(std::move(declared_build)),
-      declared_target_(std::move(declared_target)),
-      build_(std::move(build)), target_(std::move(target))
+struct architecture_binding::impl final {
+  impl(pkgsource::architecture_reference build_value,
+       pkgsource::architecture_reference target_value)
+      : build(std::move(build_value)), target(std::move(target_value))
+  {
+  }
+  pkgsource::architecture_reference build;
+  pkgsource::architecture_reference target;
+};
+
+architecture_binding::architecture_binding(std::shared_ptr<const impl> value)
+    : impl_(std::move(value))
 {
 }
-
+architecture_binding::architecture_binding(const architecture_binding&) noexcept = default;
+architecture_binding::architecture_binding(architecture_binding&&) noexcept = default;
+architecture_binding& architecture_binding::operator=(const architecture_binding&) noexcept = default;
+architecture_binding& architecture_binding::operator=(architecture_binding&&) noexcept = default;
+architecture_binding::~architecture_binding() = default;
 architecture_binding architecture_binding::select(
     const pkgsource::architecture_requirements& declared,
     pkgsource::architecture_reference build,
     pkgsource::architecture_reference target)
 {
-  if (!allowed(declared.build(), build))
-    invalid("selected build architecture is not admitted by source authority");
-  if (!allowed(declared.target(), target))
-    invalid("selected target architecture is not admitted by source authority");
-  return architecture_binding(declared.build(), declared.target(),
-                              std::move(build), std::move(target));
+  if (!contains_architecture(declared.build(), build))
+    invalid("selected build architecture is not declared by the source");
+  if (!contains_architecture(declared.target(), target))
+    invalid("selected target architecture is not declared by the source");
+  return architecture_binding(std::make_shared<impl>(
+      std::move(build), std::move(target)));
 }
-const std::vector<pkgsource::architecture_reference>& architecture_binding::declared_build() const noexcept { return declared_build_; }
-const std::vector<pkgsource::architecture_reference>& architecture_binding::declared_target() const noexcept { return declared_target_; }
-const pkgsource::architecture_reference& architecture_binding::build() const noexcept { return build_; }
-const pkgsource::architecture_reference& architecture_binding::target() const noexcept { return target_; }
+const pkgsource::architecture_reference& architecture_binding::build() const noexcept
+{ return impl_->build; }
+const pkgsource::architecture_reference& architecture_binding::target() const noexcept
+{ return impl_->target; }
 
 build_policy::build_policy(environment_policy environment,
                            output_layout_kind output_layout,
@@ -233,7 +324,6 @@ build_policy::build_policy(environment_policy environment,
       identity_(std::move(identity))
 {
 }
-
 build_policy build_policy::make(environment_policy environment,
                                 output_layout_kind output_layout)
 {
@@ -241,47 +331,82 @@ build_policy build_policy::make(environment_policy environment,
   return build_policy(std::move(environment), output_layout,
                       std::move(identity));
 }
-const environment_policy& build_policy::environment() const noexcept { return environment_; }
-output_layout_kind build_policy::output_layout() const noexcept { return output_layout_; }
-const build_policy_identity& build_policy::identity() const noexcept { return identity_; }
+const environment_policy& build_policy::environment() const noexcept
+{ return environment_; }
+output_layout_kind build_policy::output_layout() const noexcept
+{ return output_layout_; }
+const build_policy_identity& build_policy::identity() const noexcept
+{ return identity_; }
 
-build_request::build_request(pkgsource::source_snapshot source,
-    source_material_set sources, build_input_set inputs,
-    architecture_binding architectures, build_policy policy,
-    build_request_identity identity)
-    : source_(std::move(source)), sources_(std::move(sources)),
-      inputs_(std::move(inputs)), architectures_(std::move(architectures)),
-      policy_(std::move(policy)), identity_(std::move(identity))
+struct build_request::impl final {
+  impl(pkgresolve::selected_package subject_value,
+       pkgsource::source_snapshot source_value,
+       build_input_set inputs_value,
+       architecture_binding architectures_value,
+       build_policy policy_value,
+       build_request_identity identity_value)
+      : subject(std::move(subject_value)), source(std::move(source_value)),
+        inputs(std::move(inputs_value)),
+        architectures(std::move(architectures_value)),
+        policy(std::move(policy_value)), identity(std::move(identity_value))
+  {
+  }
+  pkgresolve::selected_package subject;
+  pkgsource::source_snapshot source;
+  build_input_set inputs;
+  architecture_binding architectures;
+  build_policy policy;
+  build_request_identity identity;
+};
+
+build_request::build_request(std::shared_ptr<const impl> value)
+    : impl_(std::move(value))
 {
 }
+build_request::build_request(const build_request&) noexcept = default;
+build_request::build_request(build_request&&) noexcept = default;
+build_request& build_request::operator=(const build_request&) noexcept = default;
+build_request& build_request::operator=(build_request&&) noexcept = default;
+build_request::~build_request() = default;
 
 build_request build_request::seal(
-    pkgsource::source_snapshot source,
-    std::vector<materialized_source> sources,
-    std::vector<materialized_package_input> package_inputs,
-    pkgsource::architecture_reference build_architecture,
-    pkgsource::architecture_reference target_architecture,
+    const pkgresolve::resolution_result& resolution,
+    pkgresolve::package_selection_identity subject_identity,
     build_policy policy)
 {
-  auto source_set = source_material_set::seal(source, std::move(sources));
-  auto input_set = build_input_set::seal(source, std::move(package_inputs));
+  auto inputs = build_input_set::admit(resolution, subject_identity);
+  const auto& subject = inputs.subject();
+  const auto* candidate = subject.candidate();
+  if (candidate == nullptr)
+    invalid("build subject lost catalog source authority");
+  auto source = candidate->source();
   auto architectures = architecture_binding::select(
-      source.recipe().architectures(), std::move(build_architecture),
-      std::move(target_architecture));
-  auto identity = request_id(source, source_set, input_set, architectures, policy);
-  return build_request(std::move(source), std::move(source_set),
-                       std::move(input_set), std::move(architectures),
-                       std::move(policy), std::move(identity));
+      source.recipe().architectures(), subject.architectures().build(),
+      subject.architectures().target());
+  auto identity = request_id(source, inputs, architectures, policy);
+  return build_request(std::make_shared<impl>(
+      subject, std::move(source), std::move(inputs),
+      std::move(architectures), std::move(policy), std::move(identity)));
 }
 
-const pkgsource::source_snapshot& build_request::source() const noexcept { return source_; }
-const pkgsource::package_release& build_request::release() const noexcept { return source_.recipe().release(); }
-const source_material_set& build_request::sources() const noexcept { return sources_; }
-const build_input_set& build_request::inputs() const noexcept { return inputs_; }
-const architecture_binding& build_request::architectures() const noexcept { return architectures_; }
-const std::vector<pkgsource::selected_profile>& build_request::selected_profiles() const noexcept { return source_.recipe().selected_build_profiles(); }
-const pkgsource::program& build_request::build_program() const noexcept { return source_.recipe().build_program(); }
-const build_policy& build_request::policy() const noexcept { return policy_; }
-const build_request_identity& build_request::identity() const noexcept { return identity_; }
+const pkgresolve::selected_package& build_request::subject() const noexcept
+{ return impl_->subject; }
+const pkgsource::source_snapshot& build_request::source() const noexcept
+{ return impl_->source; }
+const pkgsource::package_release& build_request::release() const noexcept
+{ return impl_->source.recipe().release(); }
+const build_input_set& build_request::inputs() const noexcept
+{ return impl_->inputs; }
+const architecture_binding& build_request::architectures() const noexcept
+{ return impl_->architectures; }
+const std::vector<pkgsource::selected_profile>&
+build_request::selected_profiles() const noexcept
+{ return impl_->source.recipe().selected_build_profiles(); }
+const pkgsource::program& build_request::build_program() const noexcept
+{ return impl_->source.recipe().build_program(); }
+const build_policy& build_request::policy() const noexcept
+{ return impl_->policy; }
+const build_request_identity& build_request::identity() const noexcept
+{ return impl_->identity; }
 
 } // namespace pkgbuild

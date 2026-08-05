@@ -2,7 +2,7 @@ LIBPKGBUILD(3)
 
 # NAME
 
-libpkgbuild - native sealed package-build authority
+libpkgbuild - sealed logical package-build authority
 
 # SYNOPSIS
 
@@ -10,31 +10,26 @@ libpkgbuild - native sealed package-build authority
 
 # DESCRIPTION
 
-*libpkgbuild* defines immutable build requests and results for native
-Zeppe-Lin packages. Version 1 is an incompatible authority reset.
+*libpkgbuild* admits one catalog-backed selected package from a complete
+*libpkgresolve* result and seals its exact source snapshot, direct build/check
+resolver inputs, selected architectures, and closed build policy into an
+immutable *build_request*.
 
-The library consumes one sealed *libpkgsource* snapshot, verified source
-material, externally resolved and materialized build/check inputs, exact
-architecture choices, and closed build policy. It seals those values into a
-*build_request* before execution begins.
-
-A successful *build_result* binds the request, execution evidence, complete
+A successful *build_result* binds that request, execution evidence, a complete
 intended payload, and exact artifact bytes. A failed result binds the request,
-execution evidence, and failure evidence and carries no payload or artifact.
+execution evidence, and failure evidence and contains no partial success data.
+
+Foreign-bearing request and result values use opaque immutable storage. The
+public libpkgbuild ABI therefore does not embed libpkgsource or libpkgresolve
+object layouts.
 
 # NON-GOALS
 
-The core does not parse recipe syntax, inspect collections, resolve packages,
-download sources, execute build programs, create isolation, write archives,
-install payloads, query installed state, or implement historical compatibility.
-
-# ADAPTERS
-
-*libpkgbuild-plan* verifies exact artifact bytes through *libpkgimage*, proves
-that the normalized archive equals the build-owned payload, and projects the
-artifact facts accepted by *libpkgplan*.
+The core does not parse recipe syntax, discover collections, resolve packages,
+acquire sources, materialize package trees, execute programs, inspect archives,
+project planner facts, publish installed state, or apply payloads.
 
 # SEE ALSO
 
 *pkgbuild_model*(3), *pkgbuild_request*(3), *pkgbuild_result*(3),
-*pkgbuild_plan_adapter*(3), *libpkgsource*(3)
+*libpkgsource*(3), *libpkgresolve*(3)

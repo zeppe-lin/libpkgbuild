@@ -1,57 +1,69 @@
 # SPDX-FileCopyrightText: 2026 Alexandr Savca
 # SPDX-License-Identifier: GPL-3.0-or-later
 if get_option('tests').enabled()
-  foreach item : [
-    ['model-test', 'model_test.cpp'],
-    ['request-test', 'request_test.cpp'],
-    ['result-test', 'result_test.cpp'],
-    ['public-headers', 'public_headers.cpp'],
-  ]
-    value = executable(
-      item[0],
-      item[1],
+  behavior_tests = {
+    'model': 'model_test.cpp',
+    'request': 'request_test.cpp',
+    'result': 'result_test.cpp',
+  }
+  foreach test_name, source_file : behavior_tests
+    executable_target = executable(
+      test_name + '-test',
+      source_file,
       include_directories: include_directories('.'),
       dependencies: libpkgbuild_dep,
       install: false,
     )
-    test(item[0], value)
+    test(test_name, executable_target)
   endforeach
 
-  if libpkgsource_plan_dep.found() and libpkgimage_dep.found() and libpkgplan_dep.found()
-    test_libarchive_dep = dependency(
-      'libarchive',
-      required: true,
-      static: want_static,
+  public_headers = {
+    'public-umbrella': 'public_headers.cpp',
+    'public-error': 'public/error_header_test.cpp',
+    'public-export': 'public/export_header_test.cpp',
+    'public-identity': 'public/identity_header_test.cpp',
+    'public-model': 'public/model_header_test.cpp',
+    'public-request': 'public/request_header_test.cpp',
+    'public-result': 'public/result_header_test.cpp',
+  }
+  foreach test_name, source_file : public_headers
+    executable_target = executable(
+      test_name,
+      source_file,
+      dependencies: libpkgbuild_dep,
+      install: false,
     )
+    test(test_name, executable_target)
+  endforeach
 
-    plan_adapter_test = executable(
-      'plan-adapter-test',
-      'plan_adapter_test.cpp',
-      include_directories: include_directories('.'),
-      dependencies: [
-        libpkgbuild_plan_dep,
-        test_libarchive_dep,
-        libcrypto_dep,
+  sh = find_program('sh')
+  if library_kind == 'shared'
+    nm = find_program('nm')
+    test(
+      'abi-surface',
+      sh,
+      args: [
+        meson.current_source_dir() / 'contracts/check_abi_surface.sh',
+        nm.full_path(),
+        libpkgbuild.full_path(),
+        meson.project_source_root() / 'abi/libpkgbuild.exports',
       ],
-      install: false,
     )
-    test('plan-adapter', plan_adapter_test)
-
-    plan_adapter_header_test = executable(
-      'plan-adapter-header-test',
-      'plan_adapter_header_test.cpp',
-      dependencies: libpkgbuild_plan_dep,
-      install: false,
-    )
-    test('plan-adapter-header', plan_adapter_header_test)
   endif
 
   foreach contract : [
-    'check_authority_contract.sh',
-    'check_release_metadata.sh',
-    'check_manpage_contract.sh',
+    'authority-contract',
+    'release-metadata',
+    'manpage-contract',
+    'test-structure',
   ]
-    program = find_program(contract)
-    test(contract, program, args: [meson.project_source_root()])
+    test(
+      contract,
+      sh,
+      args: [
+        meson.current_source_dir() / ('contracts/check_' + contract.replace('-', '_') + '.sh'),
+        meson.project_source_root(),
+      ],
+    )
   endforeach
 endif

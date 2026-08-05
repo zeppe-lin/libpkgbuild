@@ -25,10 +25,7 @@ bool operator<(const type_name& lhs, const type_name& rhs) noexcept {           
   return lhs.hex_ < rhs.hex_;                                                    \
 }
 
-PKGBUILD_DEFINE_IDENTITY(source_material_identity)
-PKGBUILD_DEFINE_IDENTITY(source_material_set_identity)
-PKGBUILD_DEFINE_IDENTITY(resolved_package_input_identity)
-PKGBUILD_DEFINE_IDENTITY(input_tree_identity)
+PKGBUILD_DEFINE_IDENTITY(build_input_identity)
 PKGBUILD_DEFINE_IDENTITY(build_input_set_identity)
 PKGBUILD_DEFINE_IDENTITY(environment_policy_identity)
 PKGBUILD_DEFINE_IDENTITY(build_policy_identity)

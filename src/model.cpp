@@ -7,6 +7,7 @@
 #include "identity_support.h"
 
 #include <algorithm>
+#include <memory>
 #include <set>
 #include <tuple>
 #include <utility>
@@ -29,50 +30,13 @@ void require_line_safe(std::string_view value, std::string_view field)
   }
 }
 
-source_material_identity source_material_id(
-    const pkgsource::source_input& declaration,
-    const sha256_digest& observed)
-{
-  detail::identity_writer writer;
-  writer.text("libpkgbuild/source-material/v1");
-  writer.text(pkgsource::to_string(declaration.kind()));
-  writer.text(declaration.location());
-  writer.text(declaration.local_name());
-  writer.text(pkgsource::to_string(declaration.content_digest().algorithm()));
-  writer.text(declaration.content_digest().hex());
-  writer.text(observed.hex());
-  return source_material_identity::from_sha256(writer.finish());
-}
-
-resolved_package_input_identity resolved_input_id(
-    input_scope scope,
-    const pkgsource::package_reference& declared,
-    const pkgsource::package_release& release,
-    const pkgsource::source_snapshot_identity& snapshot,
-    const build_result_identity& result,
-    const artifact_identity& artifact)
-{
-  detail::identity_writer writer;
-  writer.text("libpkgbuild/resolved-package-input/v1");
-  writer.text(to_string(scope));
-  writer.text(declared.name());
-  writer.text(release.identity().hex());
-  writer.text(release.package().name());
-  writer.text(release.version());
-  writer.number(release.release());
-  writer.text(snapshot.hex());
-  writer.text(result.hex());
-  writer.text(artifact.hex());
-  return resolved_package_input_identity::from_sha256(writer.finish());
-}
-
 environment_policy_identity environment_id(
     std::uint32_t parallelism,
     std::uint32_t file_creation_mask,
     const std::optional<std::int64_t>& source_date_epoch)
 {
   detail::identity_writer writer;
-  writer.text("libpkgbuild/environment-policy/v1");
+  writer.text("libpkgbuild/environment-policy/1");
   writer.text(to_string(locale_policy::c_utf8));
   writer.text(to_string(timezone_policy::utc));
   writer.text(to_string(network_policy::denied));
@@ -115,7 +79,7 @@ void write_payload_entry(detail::identity_writer& writer,
 payload_manifest_identity manifest_id(const std::vector<payload_entry>& entries)
 {
   detail::identity_writer writer;
-  writer.text("libpkgbuild/payload-manifest/v1");
+  writer.text("libpkgbuild/payload-manifest/1");
   writer.number(entries.size());
   for (const auto& entry : entries)
     write_payload_entry(writer, entry);
@@ -128,7 +92,7 @@ artifact_identity artifact_id(artifact_encoding encoding,
                               const sha256_digest& digest)
 {
   detail::identity_writer writer;
-  writer.text("libpkgbuild/artifact/v1");
+  writer.text("libpkgbuild/artifact/1");
   writer.text(to_string(encoding));
   writer.text(to_string(compression));
   writer.number(byte_count);
@@ -138,8 +102,6 @@ artifact_identity artifact_id(artifact_encoding encoding,
 
 } // namespace
 
-#define PKGBUILD_TO_STRING_CASE(value) case decltype(value)::value: return #value
-
 std::string_view to_string(input_scope value) noexcept
 {
   switch (value) {
@@ -148,32 +110,16 @@ std::string_view to_string(input_scope value) noexcept
   }
   return "unknown";
 }
-
 std::string_view to_string(locale_policy value) noexcept
-{
-  return value == locale_policy::c_utf8 ? "C.UTF-8" : "unknown";
-}
-
+{ return value == locale_policy::c_utf8 ? "C.UTF-8" : "unknown"; }
 std::string_view to_string(timezone_policy value) noexcept
-{
-  return value == timezone_policy::utc ? "UTC" : "unknown";
-}
-
+{ return value == timezone_policy::utc ? "UTC" : "unknown"; }
 std::string_view to_string(network_policy value) noexcept
-{
-  return value == network_policy::denied ? "denied" : "unknown";
-}
-
+{ return value == network_policy::denied ? "denied" : "unknown"; }
 std::string_view to_string(home_policy value) noexcept
-{
-  return value == home_policy::isolated ? "isolated" : "unknown";
-}
-
+{ return value == home_policy::isolated ? "isolated" : "unknown"; }
 std::string_view to_string(output_layout_kind value) noexcept
-{
-  return value == output_layout_kind::package_root_v1 ? "package-root-v1" : "unknown";
-}
-
+{ return value == output_layout_kind::package_root ? "package-root" : "unknown"; }
 std::string_view to_string(payload_entry_type value) noexcept
 {
   switch (value) {
@@ -187,12 +133,8 @@ std::string_view to_string(payload_entry_type value) noexcept
   }
   return "unknown";
 }
-
 std::string_view to_string(artifact_encoding value) noexcept
-{
-  return value == artifact_encoding::package_tar_v1 ? "package-tar-v1" : "unknown";
-}
-
+{ return value == artifact_encoding::package_tar ? "package-tar" : "unknown"; }
 std::string_view to_string(artifact_compression value) noexcept
 {
   switch (value) {
@@ -203,101 +145,18 @@ std::string_view to_string(artifact_compression value) noexcept
   }
   return "unknown";
 }
-
 std::string_view to_string(build_outcome value) noexcept
-{
-  return value == build_outcome::succeeded ? "succeeded" : "failed";
-}
+{ return value == build_outcome::succeeded ? "succeeded" : "failed"; }
 
 sha256_digest::sha256_digest(std::string hex) : hex_(std::move(hex))
-{
-  detail::require_sha256_hex(hex_);
-}
-
+{ detail::require_sha256_hex(hex_); }
 const std::string& sha256_digest::hex() const noexcept { return hex_; }
-bool operator==(const sha256_digest& lhs, const sha256_digest& rhs) noexcept { return lhs.hex_ == rhs.hex_; }
-bool operator!=(const sha256_digest& lhs, const sha256_digest& rhs) noexcept { return !(lhs == rhs); }
-bool operator<(const sha256_digest& lhs, const sha256_digest& rhs) noexcept { return lhs.hex_ < rhs.hex_; }
-
-materialized_source::materialized_source(pkgsource::source_input declaration,
-                                         sha256_digest observed_content,
-                                         source_material_identity identity)
-    : declaration_(std::move(declaration)),
-      observed_content_(std::move(observed_content)),
-      identity_(std::move(identity))
-{
-}
-
-materialized_source materialized_source::verify(
-    pkgsource::source_input declaration, sha256_digest observed_content)
-{
-  if (declaration.content_digest().algorithm() != pkgsource::digest_algorithm::sha256 ||
-      declaration.content_digest().hex() != observed_content.hex())
-    invalid("materialized source does not match its declared SHA-256 digest");
-  auto identity = source_material_id(declaration, observed_content);
-  return materialized_source(std::move(declaration), std::move(observed_content),
-                             std::move(identity));
-}
-
-const pkgsource::source_input& materialized_source::declaration() const noexcept { return declaration_; }
-const sha256_digest& materialized_source::observed_content() const noexcept { return observed_content_; }
-const source_material_identity& materialized_source::identity() const noexcept { return identity_; }
-bool operator==(const materialized_source& lhs, const materialized_source& rhs) noexcept { return lhs.identity_ == rhs.identity_; }
-bool operator!=(const materialized_source& lhs, const materialized_source& rhs) noexcept { return !(lhs == rhs); }
-bool operator<(const materialized_source& lhs, const materialized_source& rhs) noexcept { return lhs.identity_ < rhs.identity_; }
-
-resolved_package_input::resolved_package_input(
-    input_scope scope, pkgsource::package_reference declared_package,
-    pkgsource::package_release resolved_release,
-    pkgsource::source_snapshot_identity source_snapshot,
-    build_result_identity build_result, artifact_identity artifact,
-    resolved_package_input_identity identity)
-    : scope_(scope), declared_package_(std::move(declared_package)),
-      resolved_release_(std::move(resolved_release)),
-      source_snapshot_(std::move(source_snapshot)),
-      build_result_(std::move(build_result)), artifact_(std::move(artifact)),
-      identity_(std::move(identity))
-{
-}
-
-resolved_package_input resolved_package_input::make(
-    input_scope scope, pkgsource::package_reference declared_package,
-    pkgsource::package_release resolved_release,
-    pkgsource::source_snapshot_identity source_snapshot,
-    build_result_identity build_result, artifact_identity artifact)
-{
-  if (declared_package.name() != resolved_release.package().name())
-    invalid("resolved package input does not satisfy its exact package subject");
-  auto identity = resolved_input_id(scope, declared_package, resolved_release,
-                                    source_snapshot, build_result, artifact);
-  return resolved_package_input(scope, std::move(declared_package),
-                                std::move(resolved_release),
-                                std::move(source_snapshot),
-                                std::move(build_result), std::move(artifact),
-                                std::move(identity));
-}
-
-input_scope resolved_package_input::scope() const noexcept { return scope_; }
-const pkgsource::package_reference& resolved_package_input::declared_package() const noexcept { return declared_package_; }
-const pkgsource::package_release& resolved_package_input::resolved_release() const noexcept { return resolved_release_; }
-const pkgsource::source_snapshot_identity& resolved_package_input::source_snapshot() const noexcept { return source_snapshot_; }
-const build_result_identity& resolved_package_input::build_result() const noexcept { return build_result_; }
-const artifact_identity& resolved_package_input::artifact() const noexcept { return artifact_; }
-const resolved_package_input_identity& resolved_package_input::identity() const noexcept { return identity_; }
-bool operator==(const resolved_package_input& lhs, const resolved_package_input& rhs) noexcept { return lhs.identity_ == rhs.identity_; }
-bool operator!=(const resolved_package_input& lhs, const resolved_package_input& rhs) noexcept { return !(lhs == rhs); }
-bool operator<(const resolved_package_input& lhs, const resolved_package_input& rhs) noexcept { return lhs.identity_ < rhs.identity_; }
-
-materialized_package_input::materialized_package_input(
-    resolved_package_input resolved, input_tree_identity tree)
-    : resolved_(std::move(resolved)), tree_(std::move(tree))
-{
-}
-const resolved_package_input& materialized_package_input::resolved() const noexcept { return resolved_; }
-const input_tree_identity& materialized_package_input::tree() const noexcept { return tree_; }
-bool operator==(const materialized_package_input& lhs, const materialized_package_input& rhs) noexcept { return lhs.resolved_ == rhs.resolved_ && lhs.tree_ == rhs.tree_; }
-bool operator!=(const materialized_package_input& lhs, const materialized_package_input& rhs) noexcept { return !(lhs == rhs); }
-bool operator<(const materialized_package_input& lhs, const materialized_package_input& rhs) noexcept { return std::tie(lhs.resolved_, lhs.tree_) < std::tie(rhs.resolved_, rhs.tree_); }
+bool operator==(const sha256_digest& lhs, const sha256_digest& rhs) noexcept
+{ return lhs.hex_ == rhs.hex_; }
+bool operator!=(const sha256_digest& lhs, const sha256_digest& rhs) noexcept
+{ return !(lhs == rhs); }
+bool operator<(const sha256_digest& lhs, const sha256_digest& rhs) noexcept
+{ return lhs.hex_ < rhs.hex_; }
 
 environment_policy::environment_policy(
     std::uint32_t parallelism, std::uint32_t file_creation_mask,

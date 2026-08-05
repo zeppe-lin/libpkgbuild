@@ -1,34 +1,26 @@
-LIBPKGBUILD 2.0.0
-=================
+LIBPKGBUILD
+===========
 
-libpkgbuild defines the native Zeppe-Lin package-build authority model.
-Version 2 is intentionally incompatible with the former Pkgfile/pkgmk-shaped
-execution engine.
+libpkgbuild is the native authority for logical package-build requests and
+build outcomes in Zeppe-Lin.
 
-The core library seals:
+A build request admits one exact catalog-backed package selection from a sealed
+libpkgresolve result. It derives the source snapshot, direct build/check inputs,
+and selected architectures from that authority, then binds them to a closed
+build policy. Callers cannot reconstruct resolver authority from loose release,
+source, artifact, or filesystem identities.
 
-* source material verified against one libpkgsource snapshot;
-* exact build and check package inputs selected by an external resolver;
-* content-addressed trees materialized for those inputs;
-* selected build and target architectures;
-* source-owned selected profiles and exact build program bytes;
-* a closed hermetic process-environment policy;
-* one immutable build request;
-* one complete intended package payload;
-* exact retained artifact bytes; and
-* successful or failed build-result authority.
+A successful build result binds the request, execution evidence, a complete
+intended payload, and exact artifact bytes. A failed result binds the request,
+execution evidence, and failure evidence and cannot carry partial success data.
 
-The library does not parse recipe syntax, inspect collections, resolve
-requirements, download or extract sources, execute programs, create sandboxes,
-write archives, install packages, or query installed state. Pathnames are
-transport coordinates and never artifact identity.
+The core deliberately does not acquire sources, materialize package trees,
+execute programs, inspect archives, project planner facts, publish installed
+state, or apply payloads. Those are separate provider, execution, adapter, and
+orchestration boundaries.
 
-The optional libpkgbuild-plan adapter inspects exact artifact bytes through
-libpkgimage, proves that the archive image equals the build-owned payload, and
-projects only the verified artifact facts accepted by libpkgplan.
+The public request/result values use opaque immutable storage. libpkgsource and
+libpkgresolve remain explicit ABI dependencies, but their object layouts do not
+propagate through downstream libpkgbuild consumers.
 
-No Pkgfile/0, pkgmk behavior, fakeroot, `.md5sum`, `.footprint`, `.nostrip`,
-`.32bit`, or mutable build-directory compatibility exists in version 1.
-Migration belongs to separate tools and execution backends.
-
-See DESIGN.md for authority boundaries and TESTING.md for qualification.
+See DESIGN.md for the authority model and TESTING.md for qualification.

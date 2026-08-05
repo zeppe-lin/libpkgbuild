@@ -2,26 +2,22 @@ PKGBUILD_RESULT(3)
 
 # NAME
 
-pkgbuild_result - seal complete native build outcomes
+pkgbuild_result - seal complete package-build outcomes
 
 # DESCRIPTION
 
-*build_result::succeeded* requires a sealed request, execution-evidence
-identity, complete payload manifest, and sealed artifact. It derives a binding
-identity over the request, payload, and exact artifact authority.
+*build_result::succeeded* requires a sealed request, complete payload manifest,
+sealed artifact, and execution-evidence identity. It derives an artifact binding
+and complete result identity.
 
 *build_result::failed* requires a sealed request, execution-evidence identity,
 and failure-evidence identity. Failed results contain no payload, artifact, or
-artifact binding.
+artifact binding. Public construction cannot represent a partial result.
 
-Public construction cannot represent a partial result. Changing source
-snapshot, inputs, profiles, architectures, policy, payload, artifact bytes, or
-execution evidence changes the build-result identity.
-
-A successful result states intended payload and exact artifact bytes. It does
-not by itself prove that an archive decodes to that payload; the verified
-planner adapter performs that comparison.
+A successful result states the intended payload and exact artifact bytes. It
+does not by itself prove that decoding those bytes yields that payload; that
+statement belongs to the separate build/image admission boundary.
 
 # SEE ALSO
 
-*libpkgbuild*(3), *pkgbuild_request*(3), *pkgbuild_plan_adapter*(3)
+*libpkgbuild*(3), *pkgbuild_request*(3)

@@ -2,26 +2,27 @@ PKGBUILD_REQUEST(3)
 
 # NAME
 
-pkgbuild_request - seal complete native build inputs
+pkgbuild_request - admit and seal one logical package build
 
 # DESCRIPTION
 
-*build_request::seal* accepts one *pkgsource::source_snapshot*, all materialized
-source inputs, all materialized build and check package inputs, selected build
-and target architectures, and one *build_policy*.
+*build_request::seal* accepts a complete *pkgresolve::resolution_result*, one
+package-selection identity naming the build subject, and one *build_policy*.
 
-Every source declaration must have exactly one verified materialization. Every
-expanded build and check package requirement must have exactly one input in the
-matching scope. Extra, missing, duplicate, or cross-scope bindings are rejected.
-Selected architectures must satisfy the source-owned architecture constraints.
+The subject must retain catalog source authority. Its package, release, source
+snapshot, environment, and architecture context must agree with the resolution.
+Every exact expanded source build/check requirement must have one matching
+resolver edge and required selected package. Missing, extra, ambiguous, or
+cross-scope edges are rejected.
 
-The request retains source-owned package release, recipe and snapshot
-identities, exact build-program bytes, selected build profiles and provenance,
-source material, build/check inputs, architectures, and policy.
+The request derives its source snapshot, direct inputs, selected build and
+target architectures, selected profiles, and exact build program. Callers do
+not provide parallel release, source, materialization, or tree claims.
 
-Requirement and source collections are normalized where order is not semantic.
-Program bytes are preserved exactly.
+The canonical identity binds source-snapshot identity, build-input-set identity,
+the selected architecture pair, and build-policy identity.
 
 # SEE ALSO
 
-*libpkgbuild*(3), *pkgbuild_model*(3), *pkgbuild_result*(3)
+*libpkgbuild*(3), *pkgbuild_model*(3), *pkgbuild_result*(3),
+*libpkgresolve*(3)

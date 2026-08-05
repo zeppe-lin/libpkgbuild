@@ -1,32 +1,34 @@
 // SPDX-FileCopyrightText: 2026 Alexandr Savca
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/*! \file identity.h
- *  \brief Domain-separated SHA-256 build identities.
+/** @file identity.h
+ *  @brief Domain-specific SHA-256 package-build identities.
  */
 #pragma once
+
+#include <libpkgbuild/export.h>
 
 #include <string>
 
 namespace pkgbuild {
 
 #define PKGBUILD_DECLARE_IDENTITY(type_name)                                   \
-class type_name final {                                                        \
+class PKGBUILD_API type_name final {                                           \
 public:                                                                        \
   [[nodiscard]] static type_name from_sha256(std::string hex);                 \
   [[nodiscard]] const std::string& hex() const noexcept;                       \
-  friend bool operator==(const type_name& lhs, const type_name& rhs) noexcept; \
-  friend bool operator!=(const type_name& lhs, const type_name& rhs) noexcept; \
-  friend bool operator<(const type_name& lhs, const type_name& rhs) noexcept;  \
+  friend PKGBUILD_API bool                                                     \
+  operator==(const type_name& lhs, const type_name& rhs) noexcept;             \
+  friend PKGBUILD_API bool                                                     \
+  operator!=(const type_name& lhs, const type_name& rhs) noexcept;             \
+  friend PKGBUILD_API bool                                                     \
+  operator<(const type_name& lhs, const type_name& rhs) noexcept;              \
 private:                                                                       \
   explicit type_name(std::string hex);                                         \
   std::string hex_;                                                            \
 }
 
-PKGBUILD_DECLARE_IDENTITY(source_material_identity);
-PKGBUILD_DECLARE_IDENTITY(source_material_set_identity);
-PKGBUILD_DECLARE_IDENTITY(resolved_package_input_identity);
-PKGBUILD_DECLARE_IDENTITY(input_tree_identity);
+PKGBUILD_DECLARE_IDENTITY(build_input_identity);
 PKGBUILD_DECLARE_IDENTITY(build_input_set_identity);
 PKGBUILD_DECLARE_IDENTITY(environment_policy_identity);
 PKGBUILD_DECLARE_IDENTITY(build_policy_identity);

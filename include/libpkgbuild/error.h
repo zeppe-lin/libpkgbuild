@@ -6,6 +6,8 @@
  */
 #pragma once
 
+#include <libpkgbuild/export.h>
+
 #include <stdexcept>
 #include <string>
 
@@ -19,7 +21,7 @@ enum class error_code {
   invalid_result,
 };
 
-class error final : public std::runtime_error {
+class PKGBUILD_API error final : public std::runtime_error {
 public:
   error(error_code code, std::string message);
   [[nodiscard]] error_code code() const noexcept;

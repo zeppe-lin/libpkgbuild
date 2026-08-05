@@ -1,95 +1,123 @@
-LIBPKGBUILD NATIVE AUTHORITY
-============================
+LIBPKGBUILD DESIGN
+==================
 
-Authority boundary
+Authority position
 ------------------
 
-libpkgsource owns package declarations, package-release identity, requirement
-origins, selected profile identity, exact program bytes, source declarations,
-and architecture constraints. libpkgbuild consumes one sealed source snapshot;
-it never reopens or reparses its recipe document.
+libpkgsource owns normalized package-source declarations. libpkgcatalog owns
+collection ordering and candidate authority. libpkgstate owns installed package
+state. libpkgresolve selects exact package authorities and records requirement
+edges. libpkgbuild consumes those sealed facts and owns only the logical build
+request and build outcome.
 
-A resolver owns selection. A resolved package input binds one exact declared
-build or check subject to a concrete package release, source snapshot, upstream
-build result, and artifact. A materialized input additionally binds the exact
-filesystem-tree identity made available to execution. These are separate facts:
+The core does not discover, resolve, acquire, materialize, execute, inspect,
+plan, install, or publish. A path is never build authority. An arbitrary digest
+provided by a caller is never evidence that a filesystem tree was observed.
 
-    declared requirement
-    resolved package input
-    materialized package input
-
-Source acquisition is likewise external. A materialized source is admitted only
-when its observed SHA-256 equals the digest carried by the sealed source input.
-Every declared source must appear exactly once in a build request.
-
-Build request
+Build subject
 -------------
 
-A build request is sealed only after all source material, build inputs, check
-inputs, architecture choices, profile facts, build program bytes, and policy are
-complete. Requirement and source vectors are normalized where order is not
-semantic. Program bytes and payload archive order remain exact.
+A build request names one package-selection identity in a complete
+pkgresolve::resolution_result. Admission requires a catalog-backed selected
+package whose retained candidate, source snapshot, release, package reference,
+environment, and architecture context agree with the resolution request.
+Installed-state selections cannot become build subjects because they do not
+retain source authority.
 
-The environment policy is closed and typed. Version 1 fixes C.UTF-8, UTC, an
-isolated home, and denied network access, while sealing parallelism, umask, and
-an optional SOURCE_DATE_EPOCH. There is no arbitrary inherited environment map.
-An execution layer may realize this policy but may not add undeclared ambient
-variables as build authority.
+Direct build inputs
+-------------------
+
+The selected source snapshot owns the exact expanded build and check
+requirements. libpkgresolve owns the corresponding requirement edges and
+required package selections. libpkgbuild admits the one-to-one relationship
+between those authorities and derives a canonical build_input_set.
+
+A build_input retains:
+
+* whether the source-owned requirement is build or check scoped;
+* the exact resolver requirement edge;
+* the exact required selected package; and
+* an identity over that relationship.
+
+The input set contains direct build/check inputs only. Recursive construction
+order and cycle detection belong to libpkgtransaction. Concrete package trees,
+resource paths, and execution mounts belong to an execution-session boundary.
+
+Source materialization
+----------------------
+
+Source declarations and content digests remain inside the source snapshot.
+Observed and staged source bytes are owned by libpkgfetch and admitted by
+libpkgbuild-exec. libpkgbuild has no duplicate "materialized source" value and
+no caller-forgeable observation digest.
+
+Architecture and policy
+-----------------------
+
+The resolver-selected build and target architectures are validated against the
+source-owned architecture requirements. The request retains only the selected
+pair; it does not copy the source declaration vectors.
+
+The environment policy is closed and typed: C.UTF-8, UTC, denied network,
+isolated home, parallelism, umask, and optional SOURCE_DATE_EPOCH. The build
+policy additionally selects the package-root output layout. Arbitrary ambient
+environment maps are not authority.
+
+Build request identity
+----------------------
+
+The first canonical build-request protocol binds:
+
+* complete source-snapshot identity;
+* admitted build-input-set identity;
+* selected build architecture;
+* selected target architecture; and
+* build-policy identity.
+
+Recipe release, program, profiles, requirements, sources, and architecture
+constraints are not hashed again because the source-snapshot identity already
+binds them.
 
 Build result
 ------------
 
-A successful result requires all of:
+A successful result requires the exact request, execution-evidence identity,
+complete intended payload manifest, and exact sealed artifact. It derives an
+artifact binding and a complete result identity. A failed result requires
+failure evidence and carries no payload, artifact, or artifact binding.
 
-* the exact sealed request;
-* execution evidence identity;
-* a complete ordered intended payload manifest;
-* exact artifact byte count and SHA-256;
-* artifact encoding; and
-* an identity binding request, payload, and artifact.
+The payload model retains canonical path, object type, mode, numeric ownership,
+size, modification time, regular-content digest, symbolic-link target,
+hard-link topology, and device number. The artifact retains encoding,
+compression, exact byte count, and complete SHA-256. A pathname is not part of
+artifact authority.
 
-A failed result contains no payload or artifact and requires separate failure
-evidence. Partial result authority cannot be constructed through the public API.
+A build result states intended payload and artifact bytes. It does not state
+that decoding those bytes yields that payload. That pure cross-boundary
+admission belongs to libpkgbuild-image. Planner projection belongs to the
+standalone libpkgbuild-plan repository.
 
-The payload model retains canonical package paths, object type, mode, numeric
-ownership, size, modification time, regular-content digest, symbolic-link
-target, hard-link topology, and device numbers. Duplicate paths are rejected.
-A hard link must target an earlier regular payload entry.
+ABI discipline
+--------------
 
-Artifact pathnames and filename conventions are excluded from identity. Exact
-retained bytes are the artifact evidence. The core does not claim that archive
-bytes represent the declared payload; that statement requires archive
-inspection.
+build_input, build_input_set, architecture_binding, build_request, and
+build_result use opaque immutable storage. Their public layouts do not contain
+foreign source, catalog, state, or resolver objects by value.
 
-Planner adapter
----------------
+This prevents a foreign layout change from recursively corrupting downstream
+objects. It does not erase semantic compatibility requirements: generated
+pkg-config metadata constrains the supported libpkgsource and libpkgresolve
+major generations, and the libpkgbuild SONAME changes when this public ABI
+changes.
 
-libpkgbuild-plan accepts a successful build result plus a transport pathname.
-It verifies the pathname byte count and exact SHA-256, opens the archive through
-libpkgimage, compares every normalized image entry with the build payload, and
-then projects:
+The reviewed ELF export manifest is authoritative. Hidden visibility, public
+header compilation, shared/static qualification, and exact ABI-surface tests
+prevent accidental publication.
 
-* source-owned candidate control through libpkgsource-plan;
-* exact artifact-byte identity; and
-* an artifact-manifest identity binding the build result, candidate, payload,
-  image, and inspection receipt.
+Non-goals
+---------
 
-Build/check inputs, source material, profile provenance, environment policy, and
-execution evidence do not become planner candidate control.
-
-Installed-state transition
---------------------------
-
-libpkgstate 1.0.0 already defines build_provenance domains for build inputs,
-build results, artifacts, and planner manifests. A later destination-owned
-libpkgstate-build adapter should translate libpkgbuild values into those typed
-references. libpkgbuild does not construct installed receipts and does not
-invent filesystem application outcomes.
-
-Non-goals for version 1
------------------------
-
-Version 1 intentionally contains no process executor, Linux namespaces,
-Landlock, cgroups, source downloader, archive writer, transformation pipeline,
-package installer, dependency resolver, collection scanner, Pkgfile parser, or
-legacy importer.
+libpkgbuild contains no recipe parser, collection scanner, dependency solver,
+source downloader, package-input materializer, process executor, namespace or
+sandbox provider, archive writer or reader, planner adapter, state adapter,
+application backend, historical importer, or legacy pkgmk compatibility layer.

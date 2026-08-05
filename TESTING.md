@@ -1,27 +1,34 @@
 LIBPKGBUILD TESTING
 ===================
 
-The model tests cover identity validation, verified source binding, exact package
-subjects, closed environment policy, package-path normalization, duplicate and
-hard-link rejection, deterministic request sealing, build/check separation,
-architecture admission, result completeness, and result identity changes.
+Behavior tests exercise exact resolver admission, profile-expanded direct
+build/check inputs, architecture binding, closed environment policy, payload
+normalization, artifact authority, deterministic request sealing, complete
+success/failure results, and opaque public request layout.
 
-The planner adapter test writes exact package archive bytes, seals a matching
-successful result, reopens the artifact through the exact libpkgimage backend,
-checks payload equality, and confirms the projected libpkgplan facts. A payload
-metadata mismatch is rejected.
+Every public header is compiled independently and through the umbrella header.
+Shared builds are checked against abi/libpkgbuild.exports. Repository contracts
+reject the removed materialization/tree types, in-tree planner code, unbounded
+foreign ABI dependencies, obsolete protocol numbering, and stale documentation.
 
-Release qualification should run:
+Release qualification runs separate shared and static builds:
 
-    meson setup build . \
-        -Dplanner_adapter=enabled \
+    meson setup build-shared . \
+        -Ddefault_library=shared \
+        -Dlink_mode=shared \
         -Dman_pages=enabled \
         -Dwerror=true
-    meson compile -C build
-    meson test -C build --print-errorlogs
+    meson compile -C build-shared
+    meson test -C build-shared --print-errorlogs
 
-Shared and static builds must be configured separately with matching
-`default_library` and `link_mode` values. GCC and Clang are both release gates.
-ASan and UBSan runs, standalone installed-header consumers, pkg-config consumers,
-SONAME inspection, `git diff --check`, shell syntax, scdoc generation, and mandoc
-lint should be included when those tools are available.
+    meson setup build-static . \
+        -Ddefault_library=static \
+        -Dlink_mode=static \
+        -Dman_pages=enabled \
+        -Dwerror=true
+    meson compile -C build-static
+    meson test -C build-static --print-errorlogs
+
+GCC and Clang, ASan/UBSan, installed shared/static consumers, pkg-config
+metadata, DT_NEEDED inspection, scdoc generation, shell syntax, and
+git diff --check are release gates when their tools are available.

@@ -7,7 +7,6 @@ if scdoc.found()
     ['pkgbuild_model.3.scdoc', 'pkgbuild_model.3'],
     ['pkgbuild_request.3.scdoc', 'pkgbuild_request.3'],
     ['pkgbuild_result.3.scdoc', 'pkgbuild_result.3'],
-    ['pkgbuild_plan_adapter.3.scdoc', 'pkgbuild_plan_adapter.3'],
   ]
     custom_target(
       page[1],

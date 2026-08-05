@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include <libpkgbuild/export.h>
 #include <libpkgbuild/error.h>
 #include <libpkgbuild/identity.h>
 #include <libpkgbuild/model.h>

@@ -18,27 +18,23 @@ void expect(pkgbuild::error_code code, Function&& function)
   }
 }
 
-void test_source_and_input_authority()
+void test_resolver_input_authority()
 {
-  auto snapshot = fixture::source();
-  auto materials = fixture::materials(snapshot);
-  assert(materials.size() == 2);
-  assert(materials[0].identity().hex().size() == 64);
-
-  expect(pkgbuild::error_code::invalid_model, [&] {
-    (void)pkgbuild::materialized_source::verify(
-        snapshot.recipe().sources()[0],
-        pkgbuild::sha256_digest(std::string(64, '0')));
-  });
-  expect(pkgbuild::error_code::invalid_model, [] {
-    (void)pkgbuild::resolved_package_input::make(
-        pkgbuild::input_scope::build,
-        pkgsource::package_reference("gcc"),
-        pkgsource::package_release(pkgsource::package_reference("clang"),
-                                   "1", 1),
-        pkgsource::source_snapshot_identity::from_sha256(std::string(64, '1')),
-        pkgbuild::build_result_identity::from_sha256(std::string(64, '2')),
-        pkgbuild::artifact_identity::from_sha256(std::string(64, '3')));
+  auto resolution = fixture::resolution();
+  const auto inputs = pkgbuild::build_input_set::admit(
+      resolution, fixture::subject(resolution).identity());
+  assert(inputs.inputs().size() == 3);
+  assert(inputs.for_scope(pkgbuild::input_scope::build).size() == 2);
+  assert(inputs.for_scope(pkgbuild::input_scope::check).size() == 1);
+  for (const auto& input : inputs.inputs()) {
+    assert(input.requirement().required() == input.selection().identity());
+    assert(input.package() == input.selection().package());
+  }
+  expect(pkgbuild::error_code::invalid_request, [&] {
+    (void)pkgbuild::build_input_set::admit(
+        resolution,
+        pkgresolve::package_selection_identity::from_sha256(
+            std::string(64, '0')));
   });
 }
 
@@ -72,13 +68,6 @@ void test_payload_model()
         pkgbuild::sha256_digest(std::string(64, 'a')));
     (void)pkgbuild::payload_manifest::seal({entry, entry});
   });
-  expect(pkgbuild::error_code::invalid_model, [] {
-    (void)pkgbuild::payload_manifest::seal({
-        pkgbuild::payload_entry::hardlink(
-            pkgbuild::payload_path::parse("a"), 0644, 0, 0,
-            pkgbuild::payload_time{}, pkgbuild::payload_path::parse("missing")),
-    });
-  });
   const auto payload = fixture::payload();
   assert(payload.entries().size() == 4);
   assert(payload.identity().hex().size() == 64);
@@ -96,7 +85,7 @@ void test_artifact_authority()
 
 int main()
 {
-  test_source_and_input_authority();
+  test_resolver_input_authority();
   test_environment_policy();
   test_payload_model();
   test_artifact_authority();

@@ -18,14 +18,9 @@ for compiler in g++ clang++; do
         CXX=$compiler meson setup "$build" "$srcdir" \
             -Ddefault_library="$mode" \
             -Dlink_mode="$mode" \
-            -Dplanner_adapter=enabled \
             -Dman_pages=enabled \
             -Dwerror=true
         meson compile -C "$build"
         meson test -C "$build" --print-errorlogs
     done
 done
-
-"$srcdir/tests/check_authority_contract.sh" "$srcdir"
-"$srcdir/tests/check_release_metadata.sh" "$srcdir"
-"$srcdir/tests/check_manpage_contract.sh" "$srcdir"
