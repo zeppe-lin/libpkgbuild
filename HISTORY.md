@@ -21,6 +21,10 @@ Authority and ABI correction against the native source and resolver boundaries.
   public-header tests, and bounded source/resolver dependency metadata.
 * Renamed development-only enum spellings from package_root_v1/package_tar_v1
   to package_root/package_tar without inventing new semantic protocol versions.
+* Preserved libpkgsource unrestricted architecture semantics when build or target
+  declaration sets are empty.
+* Rejected intended hard-link payload entries whose shared-inode metadata
+  contradicts their regular anchor.
 
 Core ABI: libpkgbuild.so.4.
 

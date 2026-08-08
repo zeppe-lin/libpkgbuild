@@ -103,11 +103,12 @@ build_request_identity request_id(
   return build_request_identity::from_sha256(writer.finish());
 }
 
-bool contains_architecture(
+bool allows_architecture(
     const std::vector<pkgsource::architecture_reference>& declared,
     const pkgsource::architecture_reference& selected)
 {
-  return std::find(declared.begin(), declared.end(), selected) != declared.end();
+  return declared.empty() ||
+      std::find(declared.begin(), declared.end(), selected) != declared.end();
 }
 
 std::vector<pkgsource::resolved_requirement> direct_requirements(
@@ -305,9 +306,9 @@ architecture_binding architecture_binding::select(
     pkgsource::architecture_reference build,
     pkgsource::architecture_reference target)
 {
-  if (!contains_architecture(declared.build(), build))
+  if (!allows_architecture(declared.build(), build))
     invalid("selected build architecture is not declared by the source");
-  if (!contains_architecture(declared.target(), target))
+  if (!allows_architecture(declared.target(), target))
     invalid("selected target architecture is not declared by the source");
   return architecture_binding(std::make_shared<impl>(
       std::move(build), std::move(target)));

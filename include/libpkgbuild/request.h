@@ -40,7 +40,11 @@ private:
   std::shared_ptr<const impl> impl_;
 };
 
-/** @brief Selected build and target architectures validated against source. */
+/** @brief Selected build and target architectures validated against source.
+ *
+ * Empty source architecture sets are unrestricted, matching
+ * pkgsource::architecture_requirements.
+ */
 class PKGBUILD_API architecture_binding final {
 public:
   architecture_binding(const architecture_binding&) noexcept;

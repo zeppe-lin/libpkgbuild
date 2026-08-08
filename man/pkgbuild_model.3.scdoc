@@ -16,7 +16,9 @@ Ambient name/value maps are not build authority.
 
 A *payload_manifest* is an ordered complete set of canonical package objects.
 It retains path, type, mode, numeric ownership, size, timestamp, regular-content
-digest, symbolic-link target, hard-link topology, and device numbers.
+digest, symbolic-link target, hard-link topology, and device numbers. A hard-link
+entry names an earlier regular anchor and carries the same inode mode, ownership,
+and modification time.
 
 A *sealed_artifact* records encoding, compression, exact byte count, and
 complete SHA-256. Its pathname is not part of the value.

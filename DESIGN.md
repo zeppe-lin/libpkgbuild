@@ -55,8 +55,10 @@ Architecture and policy
 -----------------------
 
 The resolver-selected build and target architectures are validated against the
-source-owned architecture requirements. The request retains only the selected
-pair; it does not copy the source declaration vectors.
+source-owned architecture requirements. Empty source architecture sets remain
+unrestricted exactly as defined by libpkgsource; libpkgbuild must not reinterpret
+them as an empty allow-list. The request retains only the selected pair; it does
+not copy the source declaration vectors.
 
 The environment policy is closed and typed: C.UTF-8, UTC, denied network,
 isolated home, parallelism, umask, and optional SOURCE_DATE_EPOCH. The build
@@ -88,7 +90,9 @@ failure evidence and carries no payload, artifact, or artifact binding.
 
 The payload model retains canonical path, object type, mode, numeric ownership,
 size, modification time, regular-content digest, symbolic-link target,
-hard-link topology, and device number. The artifact retains encoding,
+hard-link topology, and device number. Hard-link entries name an earlier
+regular anchor and retain the same inode mode, ownership, and modification time.
+The artifact retains encoding,
 compression, exact byte count, and complete SHA-256. A pathname is not part of
 artifact authority.
 

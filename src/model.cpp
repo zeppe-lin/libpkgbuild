@@ -7,6 +7,7 @@
 #include "identity_support.h"
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <set>
 #include <tuple>
@@ -346,17 +347,25 @@ payload_manifest::payload_manifest(std::vector<payload_entry> entries,
 payload_manifest payload_manifest::seal(std::vector<payload_entry> entries)
 {
   std::set<payload_path> seen;
-  std::set<payload_path> regular;
+  std::map<payload_path, const payload_entry*> regular;
   for (const auto& entry : entries) {
     if (!seen.insert(entry.path()).second)
       invalid("payload manifest contains a duplicate path: " + entry.path().string());
     if (entry.type() == payload_entry_type::regular)
-      regular.insert(entry.path());
+      regular.emplace(entry.path(), &entry);
     if (entry.type() == payload_entry_type::hardlink) {
-      if (!entry.hardlink_target() || regular.count(*entry.hardlink_target()) == 0)
-        invalid("hard-link target must name an earlier regular payload entry");
+      if (!entry.hardlink_target())
+        invalid("hard-link entry lacks its regular payload anchor");
       if (entry.path() == *entry.hardlink_target())
         invalid("hard-link entry cannot target itself");
+      const auto anchor = regular.find(*entry.hardlink_target());
+      if (anchor == regular.end())
+        invalid("hard-link target must name an earlier regular payload entry");
+      if (entry.mode() != anchor->second->mode() ||
+          entry.uid() != anchor->second->uid() ||
+          entry.gid() != anchor->second->gid() ||
+          entry.modification_time() != anchor->second->modification_time())
+        invalid("hard-link metadata differs from its regular payload anchor");
     }
   }
   auto identity = manifest_id(entries);

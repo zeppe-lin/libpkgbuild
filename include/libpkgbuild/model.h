@@ -240,7 +240,11 @@ private:
   std::optional<sha256_digest> regular_content_;
 };
 
-/*! \brief Ordered complete intended package payload. */
+/*! \brief Ordered complete intended package payload.
+ *
+ * Hard-link entries name an earlier regular anchor and must retain the same
+ * mode, numeric ownership, and modification time as that shared inode.
+ */
 class PKGBUILD_API payload_manifest final {
 public:
   [[nodiscard]] static payload_manifest seal(std::vector<payload_entry> entries);
