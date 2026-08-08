@@ -28,3 +28,5 @@ grep -F 'std::shared_ptr<const impl> impl_' "$root/include/libpkgbuild/result.h"
 grep -F 'libpkgbuild/build-input/1' "$root/src/request.cpp" >/dev/null
 grep -F 'libpkgbuild/build-request/1' "$root/src/request.cpp" >/dev/null
 grep -F 'libpkgbuild/build-result/1' "$root/src/result.cpp" >/dev/null
+grep -F 'return declared.empty() ||' "$root/src/request.cpp" >/dev/null
+grep -F 'hard-link metadata differs from its regular payload anchor' "$root/src/model.cpp" >/dev/null
