@@ -66,11 +66,6 @@ pkgconf.generate(
   filebase: 'libpkgbuild',
   description: 'Native sealed package-build authority model',
   subdirs: '.',
-  requires: [
-    'libpkgsource >= 3.0.0',
-    'libpkgsource < 4.0.0',
-    'libpkgresolve >= 2.0.0',
-    'libpkgresolve < 3.0.0',
-  ],
-  requires_private: ['libcrypto'],
+  requires: [libpkgsource_dep, libpkgresolve_dep],
+  requires_private: [libcrypto_dep],
 )

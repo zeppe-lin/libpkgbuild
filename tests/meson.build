@@ -59,6 +59,23 @@ if get_option('tests').allowed()
   endforeach
 
   sh = find_program('sh')
+
+  pkgconfig_metadata = find_program('contracts/check_pkgconfig_metadata.sh')
+  test(
+    'pkgconfig-metadata',
+    pkgconfig_metadata,
+    args: [meson.project_build_root()],
+    suite: 'contract',
+  )
+
+  abi_layout = executable(
+    'abi-layout-test',
+    'contracts/abi_layout_test.cpp',
+    dependencies: libpkgbuild_dep,
+    install: false,
+  )
+  test('abi-layout', abi_layout, suite: 'contract')
+
   if library_kind == 'shared'
     nm = find_program('nm')
     test(
@@ -72,6 +89,13 @@ if get_option('tests').allowed()
       ],
       suite: 'contract',
     )
+    dependency_abi = find_program('contracts/check_dependency_abi.sh')
+    test(
+      'dependency-abi',
+      dependency_abi,
+      args: [libpkgbuild.full_path()],
+      suite: 'contract',
+    )
   endif
 
   contract_tests = {
@@ -79,6 +103,8 @@ if get_option('tests').allowed()
     'release-metadata': 'contracts/check_release_metadata.sh',
     'manpage-contract': 'contracts/check_manpage_contract.sh',
     'test-layout': 'contracts/check_test_layout.sh',
+    'abi-contract': 'contracts/check_abi_contract.sh',
+    'ci-contract': 'contracts/check_ci_contract.sh',
   }
   foreach name, program : contract_tests
     test(

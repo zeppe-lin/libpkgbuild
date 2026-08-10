@@ -33,13 +33,13 @@ endif
 libcrypto_dep = dependency('libcrypto', required: true, static: want_static)
 libpkgsource_dep = dependency(
   'libpkgsource',
-  version: ['>=3.0.0', '<4.0.0'],
+  version: ['>=3.0.1', '<4.0.0'],
   required: true,
   static: want_static,
 )
 libpkgresolve_dep = dependency(
   'libpkgresolve',
-  version: ['>=2.0.0', '<3.0.0'],
+  version: ['>=3.0.0', '<4.0.0'],
   required: true,
   static: want_static,
 )

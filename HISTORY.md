@@ -19,6 +19,11 @@ Authority and ABI correction against the native source and resolver boundaries.
   repository and archive/payload admission belongs to libpkgbuild-image.
 * Added explicit symbol visibility, a reviewed ELF export manifest, standalone
   public-header tests, and bounded source/resolver dependency metadata.
+* Bound the release candidate to libpkgsource 3.0.1 and libpkgresolve 3.x,
+  rejected unsupported closed-vocabulary values at admission, removed private
+  constructors from the reviewed ABI, and anchored public error RTTI.
+* Added exact pkg-config, ABI-layout, provider-generation, installed-consumer,
+  GCC/Clang shared/static, release, and ASan/UBSan qualification gates.
 * Renamed development-only enum spellings from package_root_v1/package_tar_v1
   to package_root/package_tar without inventing new semantic protocol versions.
 * Preserved libpkgsource unrestricted architecture semantics when build or target

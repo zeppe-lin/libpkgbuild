@@ -18,10 +18,12 @@ do
     fi
 done
 
-grep -F "'libpkgsource'," "$root/meson.build" >/dev/null
-grep -F "version: ['>=3.0.0', '<4.0.0']" "$root/meson.build" >/dev/null
-grep -F "'libpkgresolve'," "$root/meson.build" >/dev/null
-grep -F "version: ['>=2.0.0', '<3.0.0']" "$root/meson.build" >/dev/null
+source_block=$(sed -n '/^libpkgsource_dep = dependency(/,/^)/p' "$root/meson.build")
+printf '%s\n' "$source_block" | grep -F "  'libpkgsource'," >/dev/null
+printf '%s\n' "$source_block" | grep -F "  version: ['>=3.0.1', '<4.0.0']," >/dev/null
+resolve_block=$(sed -n '/^libpkgresolve_dep = dependency(/,/^)/p' "$root/meson.build")
+printf '%s\n' "$resolve_block" | grep -F "  'libpkgresolve'," >/dev/null
+printf '%s\n' "$resolve_block" | grep -F "  version: ['>=3.0.0', '<4.0.0']," >/dev/null
 grep -F 'pkgresolve::resolution_result' "$root/include/libpkgbuild/request.h" >/dev/null
 grep -F 'std::shared_ptr<const impl> impl_' "$root/include/libpkgbuild/request.h" >/dev/null
 grep -F 'std::shared_ptr<const impl> impl_' "$root/include/libpkgbuild/result.h" >/dev/null

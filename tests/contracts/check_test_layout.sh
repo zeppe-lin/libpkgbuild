@@ -5,7 +5,7 @@ set -eu
 root=${1:?}
 meson=$root/tests/meson.build
 
-for directory in contracts fixtures header integration support unit; do
+for directory in contracts fixtures header installed integration support unit; do
   test -d "$root/tests/$directory" || {
     echo "missing test role directory: $directory" >&2
     exit 1
@@ -41,3 +41,21 @@ done
 
 grep -F "test('header-' + header.underscorify()" "$meson" >/dev/null
 ! grep -F "test('header:" "$meson" >/dev/null
+
+for contract in \
+    check_abi_contract.sh check_abi_surface.sh check_ci_contract.sh \
+    check_dependency_abi.sh check_pkgconfig_metadata.sh
+do
+  test -x "$root/tests/contracts/$contract" || {
+    echo "missing executable contract: $contract" >&2
+    exit 1
+  }
+done
+test -s "$root/tests/contracts/abi_layout_test.cpp" || {
+  echo 'missing ABI layout contract' >&2
+  exit 1
+}
+test -s "$root/tests/installed/consumer.cpp" || {
+  echo 'missing installed-product consumer' >&2
+  exit 1
+}
