@@ -147,7 +147,13 @@ std::string_view to_string(artifact_compression value) noexcept
   return "unknown";
 }
 std::string_view to_string(build_outcome value) noexcept
-{ return value == build_outcome::succeeded ? "succeeded" : "failed"; }
+{
+  switch (value) {
+  case build_outcome::succeeded: return "succeeded";
+  case build_outcome::failed: return "failed";
+  }
+  return "unknown";
+}
 
 sha256_digest::sha256_digest(std::string hex) : hex_(std::move(hex))
 { detail::require_sha256_hex(hex_); }
@@ -387,6 +393,17 @@ sealed_artifact sealed_artifact::make(artifact_encoding encoding,
     artifact_compression compression, std::uint64_t byte_count,
     sha256_digest complete_digest)
 {
+  if (encoding != artifact_encoding::package_tar)
+    invalid("unsupported artifact encoding");
+  switch (compression) {
+  case artifact_compression::none:
+  case artifact_compression::gzip:
+  case artifact_compression::xz:
+  case artifact_compression::zstd:
+    break;
+  default:
+    invalid("unsupported artifact compression");
+  }
   auto identity = artifact_id(encoding, compression, byte_count, complete_digest);
   return sealed_artifact(encoding, compression, byte_count,
                          std::move(complete_digest), std::move(identity));

@@ -84,4 +84,15 @@ int main()
   TEST_CHECK(artifact.byte_count() == 4096);
   TEST_CHECK(artifact.identity() != changed_compression.identity());
   TEST_CHECK(artifact.identity() != changed_size.identity());
+  TEST_PKGBUILD_THROWS(
+      error_code::invalid_model,
+      sealed_artifact::make(
+          static_cast<artifact_encoding>(99), artifact_compression::zstd, 1,
+          sha256_digest(std::string(64, 'd'))));
+  TEST_PKGBUILD_THROWS(
+      error_code::invalid_model,
+      sealed_artifact::make(
+          artifact_encoding::package_tar,
+          static_cast<artifact_compression>(99), 1,
+          sha256_digest(std::string(64, 'e'))));
 }

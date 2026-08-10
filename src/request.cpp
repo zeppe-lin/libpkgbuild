@@ -328,6 +328,8 @@ build_policy::build_policy(environment_policy environment,
 build_policy build_policy::make(environment_policy environment,
                                 output_layout_kind output_layout)
 {
+  if (output_layout != output_layout_kind::package_root)
+    invalid("unsupported build output layout");
   auto identity = policy_id(environment, output_layout);
   return build_policy(std::move(environment), output_layout,
                       std::move(identity));

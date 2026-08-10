@@ -35,4 +35,10 @@ int main()
              "package-root");
   TEST_CHECK(pkgbuild::to_string(static_cast<pkgbuild::output_layout_kind>(99)) ==
              "unknown");
+  TEST_PKGBUILD_THROWS(
+      pkgbuild::error_code::invalid_request,
+      pkgbuild::build_policy::make(
+          environment, static_cast<pkgbuild::output_layout_kind>(99)));
+  TEST_CHECK(pkgbuild::to_string(static_cast<pkgbuild::build_outcome>(99)) ==
+             "unknown");
 }
