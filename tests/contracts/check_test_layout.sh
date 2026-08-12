@@ -42,12 +42,13 @@ done
 grep -F "test('header-' + header.underscorify()" "$meson" >/dev/null
 ! grep -F "test('header:" "$meson" >/dev/null
 
-for contract in \
-    check_abi_contract.sh check_abi_surface.sh check_ci_contract.sh \
-    check_dependency_abi.sh check_pkgconfig_metadata.sh
-do
-  test -x "$root/tests/contracts/$contract" || {
-    echo "missing executable contract: $contract" >&2
+for contract in "$root"/tests/contracts/*.sh; do
+  test -x "$contract" || {
+    echo "contract is not executable: ${contract##*/}" >&2
+    exit 1
+  }
+  grep -F "${contract##*/}" "$meson" >/dev/null || {
+    echo "contract is not registered: ${contract##*/}" >&2
     exit 1
   }
 done

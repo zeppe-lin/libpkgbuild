@@ -1,5 +1,4 @@
-LIBPKGBUILD HISTORY
-===================
+# libpkgbuild history
 
 ## 3.0.0
 
@@ -30,6 +29,11 @@ Authority and ABI correction against the native source and resolver boundaries.
   declaration sets are empty.
 * Rejected intended hard-link payload entries whose shared-inode metadata
   contradicts their regular anchor.
+* Standardized the Meson option file and root documentation layout on the
+  current house conventions, and pinned those source-level conventions in the
+  contract suite.
+* Re-pinned hosted qualification to the exact released libpkgresolve 3.0.0
+  authority head used by the local qualification closure.
 
 Core ABI: libpkgbuild.so.4.
 

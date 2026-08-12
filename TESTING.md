@@ -1,5 +1,4 @@
-LIBPKGBUILD TESTING
-===================
+# libpkgbuild testing
 
 Qualification is separated by evidence role. Unit tests cover build-owned
 identities, closed policy values, payload normalization, artifact authority,

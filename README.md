@@ -1,5 +1,4 @@
-LIBPKGBUILD
-===========
+# libpkgbuild
 
 libpkgbuild is the native authority for logical package-build requests and
 build outcomes in Zeppe-Lin.

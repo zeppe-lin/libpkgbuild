@@ -1,12 +1,12 @@
-LIBPKGBUILD MAINTAINING
-======================
+# Maintaining libpkgbuild
 
 libpkgbuild owns pure package-build authority. It does not acquire source bytes,
 execute programs, inspect archives, publish state, or project operation plans.
 Changes that need those mechanisms belong in their provider or adapter boundary.
 
 The 3.0.0 ABI is the first freeze of the opaque native build model and uses
-SONAME libpkgbuild.so.4. The reviewed ELF surface contains an exact 219-symbol reviewed surface.
+SONAME libpkgbuild.so.4. The reviewed ELF surface is the exact 219-symbol
+release surface.
 Private opaque-storage constructors, private value constructors, and private
 identity constructors are not ABI. Public exceptions retain exported RTTI and
 vtable authority so catches remain valid across independently built consumers.

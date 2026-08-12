@@ -102,6 +102,8 @@ if get_option('tests').allowed()
     'authority-contract': 'contracts/check_authority_contract.sh',
     'release-metadata': 'contracts/check_release_metadata.sh',
     'manpage-contract': 'contracts/check_manpage_contract.sh',
+    'documentation-source': 'contracts/check_documentation_source.sh',
+    'repository-contract': 'contracts/check_repository_contract.sh',
     'test-layout': 'contracts/check_test_layout.sh',
     'abi-contract': 'contracts/check_abi_contract.sh',
     'ci-contract': 'contracts/check_ci_contract.sh',

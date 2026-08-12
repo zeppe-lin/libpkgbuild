@@ -1,8 +1,6 @@
-LIBPKGBUILD DESIGN
-==================
+# libpkgbuild design
 
-Authority position
-------------------
+## Authority position
 
 libpkgsource owns normalized package-source declarations. libpkgcatalog owns
 collection ordering and candidate authority. libpkgstate owns installed package
@@ -14,8 +12,7 @@ The core does not discover, resolve, acquire, materialize, execute, inspect,
 plan, install, or publish. A path is never build authority. An arbitrary digest
 provided by a caller is never evidence that a filesystem tree was observed.
 
-Build subject
--------------
+## Build subject
 
 A build request names one package-selection identity in a complete
 pkgresolve::resolution_result. Admission requires a catalog-backed selected
@@ -24,8 +21,7 @@ environment, and architecture context agree with the resolution request.
 Installed-state selections cannot become build subjects because they do not
 retain source authority.
 
-Direct build inputs
--------------------
+## Direct build inputs
 
 The selected source snapshot owns the exact expanded build and check
 requirements. libpkgresolve owns the corresponding requirement edges and
@@ -43,16 +39,14 @@ The input set contains direct build/check inputs only. Recursive construction
 order and cycle detection belong to libpkgtransaction. Concrete package trees,
 resource paths, and execution mounts belong to an execution-session boundary.
 
-Source materialization
-----------------------
+## Source materialization
 
 Source declarations and content digests remain inside the source snapshot.
 Observed and staged source bytes are owned by libpkgfetch and admitted by
 libpkgbuild-exec. libpkgbuild has no duplicate "materialized source" value and
 no caller-forgeable observation digest.
 
-Architecture and policy
------------------------
+## Architecture and policy
 
 The resolver-selected build and target architectures are validated against the
 source-owned architecture requirements. Empty source architecture sets remain
@@ -65,8 +59,7 @@ isolated home, parallelism, umask, and optional SOURCE_DATE_EPOCH. The build
 policy additionally selects the package-root output layout. Arbitrary ambient
 environment maps are not authority.
 
-Build request identity
-----------------------
+## Build request identity
 
 The first canonical build-request protocol binds:
 
@@ -80,8 +73,7 @@ Recipe release, program, profiles, requirements, sources, and architecture
 constraints are not hashed again because the source-snapshot identity already
 binds them.
 
-Build result
-------------
+## Build result
 
 A successful result requires the exact request, execution-evidence identity,
 complete intended payload manifest, and exact sealed artifact. It derives an
@@ -92,8 +84,8 @@ The payload model retains canonical path, object type, mode, numeric ownership,
 size, modification time, regular-content digest, symbolic-link target,
 hard-link topology, and device number. Hard-link entries name an earlier
 regular anchor and retain the same inode mode, ownership, and modification time.
-The artifact retains encoding,
-compression, exact byte count, and complete SHA-256. A pathname is not part of
+The artifact retains encoding, compression, exact byte count, and complete
+SHA-256. A pathname is not part of
 artifact authority.
 
 A build result states intended payload and artifact bytes. It does not state
@@ -101,8 +93,7 @@ that decoding those bytes yields that payload. That pure cross-boundary
 admission belongs to libpkgbuild-image. Planner projection belongs to the
 standalone libpkgbuild-plan repository.
 
-ABI discipline
---------------
+## ABI discipline
 
 build_input, build_input_set, architecture_binding, build_request, and
 build_result use opaque immutable storage. Their public layouts do not contain
@@ -118,8 +109,7 @@ The reviewed ELF export manifest is authoritative. Hidden visibility, public
 header compilation, shared/static qualification, and exact ABI-surface tests
 prevent accidental publication.
 
-Non-goals
----------
+## Non-goals
 
 libpkgbuild contains no recipe parser, collection scanner, dependency solver,
 source downloader, package-input materializer, process executor, namespace or

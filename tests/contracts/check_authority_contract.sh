@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 root=$1
-surface="$root/include $root/src $root/meson.build $root/meson_options.txt"
+surface="$root/include $root/src $root/meson.build $root/meson.options"
 for forbidden in \
     materialized_source source_material_set source_material_identity \
     source_material_set_identity materialized_package_input input_tree_identity \

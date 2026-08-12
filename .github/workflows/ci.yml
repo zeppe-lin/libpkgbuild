@@ -29,7 +29,7 @@ jobs:
       - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgsource, ref: 9a2a85c85c20bbfa77306f3eb14ccc67ac1e800c, path: dependencies/libpkgsource}}
       - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgcatalog, ref: 16976cac176f576871e327d5d2f6fe9d9dfa0666, path: dependencies/libpkgcatalog}}
       - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgstate, ref: f74df278b47b48e798c3de01c922c59b58319d13, path: dependencies/libpkgstate}}
-      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgresolve, ref: 64a091a977d9f61017c84f2d9103d5a210b10130, path: dependencies/libpkgresolve}}
+      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgresolve, ref: f8786884cde0d2692119a79ac98582fade20fe97, path: dependencies/libpkgresolve}}
       - name: Install tools
         run: |
           sudo apt-get update
@@ -66,7 +66,7 @@ jobs:
       - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgsource, ref: 9a2a85c85c20bbfa77306f3eb14ccc67ac1e800c, path: dependencies/libpkgsource}}
       - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgcatalog, ref: 16976cac176f576871e327d5d2f6fe9d9dfa0666, path: dependencies/libpkgcatalog}}
       - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgstate, ref: f74df278b47b48e798c3de01c922c59b58319d13, path: dependencies/libpkgstate}}
-      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgresolve, ref: 64a091a977d9f61017c84f2d9103d5a210b10130, path: dependencies/libpkgresolve}}
+      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgresolve, ref: f8786884cde0d2692119a79ac98582fade20fe97, path: dependencies/libpkgresolve}}
       - name: Install tools
         run: |
           sudo apt-get update
