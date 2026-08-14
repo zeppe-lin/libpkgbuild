@@ -16,7 +16,7 @@ Every public header is compiled independently. The contract suite pins owner
 authority, release metadata, generated pkg-config requirements, x86-64 public
 value layout, exact ELF exports, direct source/resolver SONAME generations,
 manual pages, test topology, and hosted-CI geometry. Shared builds must name
-libpkgsource.so.3 and libpkgresolve.so.3 directly and must not retain obsolete
+libpkgsource.so.4 and libpkgresolve.so.3 directly and must not retain obsolete
 provider generations.
 
 Hosted qualification constructs a clean pinned source/catalog/state/resolve

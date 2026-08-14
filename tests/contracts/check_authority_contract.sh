@@ -20,7 +20,7 @@ done
 
 source_block=$(sed -n '/^libpkgsource_dep = dependency(/,/^)/p' "$root/meson.build")
 printf '%s\n' "$source_block" | grep -F "  'libpkgsource'," >/dev/null
-printf '%s\n' "$source_block" | grep -F "  version: ['>=3.0.1', '<4.0.0']," >/dev/null
+printf '%s\n' "$source_block" | grep -F "  version: ['>=4.0.0', '<5.0.0']," >/dev/null
 resolve_block=$(sed -n '/^libpkgresolve_dep = dependency(/,/^)/p' "$root/meson.build")
 printf '%s\n' "$resolve_block" | grep -F "  'libpkgresolve'," >/dev/null
 printf '%s\n' "$resolve_block" | grep -F "  version: ['>=3.0.0', '<4.0.0']," >/dev/null

@@ -23,7 +23,7 @@ require_dependency_range()
         fail "$variable does not require $range"
 }
 require "$root/meson.build" "  version: '3.0.0',"
-require_dependency_range libpkgsource_dep libpkgsource "['>=3.0.1', '<4.0.0']"
+require_dependency_range libpkgsource_dep libpkgsource "['>=4.0.0', '<5.0.0']"
 require_dependency_range libpkgresolve_dep libpkgresolve "['>=3.0.0', '<4.0.0']"
 require "$root/src/meson.build" "  soversion: '4',"
 require "$root/src/meson.build" 'requires: [libpkgsource_dep, libpkgresolve_dep]'

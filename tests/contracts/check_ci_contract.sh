@@ -16,7 +16,7 @@ do
     grep -F "$text" "$workflow" >/dev/null || fail "workflow omits $text"
 done
 for revision in \
-    9a2a85c85c20bbfa77306f3eb14ccc67ac1e800c \
+    d5f30663a4e56c2319f301ca762741106dea1bd0 \
     16976cac176f576871e327d5d2f6fe9d9dfa0666 \
     f74df278b47b48e798c3de01c922c59b58319d13 \
     f8786884cde0d2692119a79ac98582fade20fe97

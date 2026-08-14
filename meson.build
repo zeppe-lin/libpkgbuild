@@ -33,7 +33,7 @@ endif
 libcrypto_dep = dependency('libcrypto', required: true, static: want_static)
 libpkgsource_dep = dependency(
   'libpkgsource',
-  version: ['>=3.0.1', '<4.0.0'],
+  version: ['>=4.0.0', '<5.0.0'],
   required: true,
   static: want_static,
 )
