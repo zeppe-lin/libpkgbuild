@@ -3,7 +3,7 @@
 project(
   'libpkgbuild',
   'cpp',
-  version: '3.0.0',
+  version: '3.0.1',
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.2.0',
   default_options: [
@@ -39,7 +39,7 @@ libpkgsource_dep = dependency(
 )
 libpkgresolve_dep = dependency(
   'libpkgresolve',
-  version: ['>=3.0.0', '<4.0.0'],
+  version: ['>=4.0.0', '<5.0.0'],
   required: true,
   static: want_static,
 )

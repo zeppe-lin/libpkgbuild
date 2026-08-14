@@ -1,5 +1,17 @@
 # libpkgbuild history
 
+## 3.0.1
+
+Authority-provider closure correction.
+
+* Require `libpkgsource >= 4.0.0, < 5.0.0` and
+  `libpkgresolve >= 4.0.0, < 5.0.0` together so build admission cannot mix a
+  source-4 snapshot with a resolver carrying catalog-3 authority.
+* Preserve `libpkgbuild.so.4`: public build carriers use opaque immutable
+  storage and do not embed resolver or catalog C++ layouts by value.
+* Re-pin installed-product qualification to the source-4/catalog-4/resolver-4
+  authority closure.
+
 ## 3.0.0
 
 Authority and ABI correction against the native source and resolver boundaries.

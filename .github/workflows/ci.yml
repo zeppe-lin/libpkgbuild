@@ -26,10 +26,10 @@ jobs:
       CXX: ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v4
-      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgsource, ref: d5f30663a4e56c2319f301ca762741106dea1bd0, path: dependencies/libpkgsource}}
-      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgcatalog, ref: 16976cac176f576871e327d5d2f6fe9d9dfa0666, path: dependencies/libpkgcatalog}}
+      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgsource, ref: v4.1.0, path: dependencies/libpkgsource}}
+      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgcatalog, ref: v4.0.0, path: dependencies/libpkgcatalog}}
       - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgstate, ref: f74df278b47b48e798c3de01c922c59b58319d13, path: dependencies/libpkgstate}}
-      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgresolve, ref: f8786884cde0d2692119a79ac98582fade20fe97, path: dependencies/libpkgresolve}}
+      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgresolve, ref: v4.0.0, path: dependencies/libpkgresolve}}
       - name: Install tools
         run: |
           sudo apt-get update
@@ -63,10 +63,10 @@ jobs:
       UBSAN_OPTIONS: halt_on_error=1:abort_on_error=1:print_stacktrace=1
     steps:
       - uses: actions/checkout@v4
-      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgsource, ref: d5f30663a4e56c2319f301ca762741106dea1bd0, path: dependencies/libpkgsource}}
-      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgcatalog, ref: 16976cac176f576871e327d5d2f6fe9d9dfa0666, path: dependencies/libpkgcatalog}}
+      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgsource, ref: v4.1.0, path: dependencies/libpkgsource}}
+      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgcatalog, ref: v4.0.0, path: dependencies/libpkgcatalog}}
       - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgstate, ref: f74df278b47b48e798c3de01c922c59b58319d13, path: dependencies/libpkgstate}}
-      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgresolve, ref: f8786884cde0d2692119a79ac98582fade20fe97, path: dependencies/libpkgresolve}}
+      - {uses: actions/checkout@v4, with: {repository: zeppe-lin/libpkgresolve, ref: v4.0.0, path: dependencies/libpkgresolve}}
       - name: Install tools
         run: |
           sudo apt-get update

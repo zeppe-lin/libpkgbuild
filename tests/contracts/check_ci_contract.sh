@@ -15,15 +15,16 @@ for text in \
 do
     grep -F "$text" "$workflow" >/dev/null || fail "workflow omits $text"
 done
-for revision in \
-    d5f30663a4e56c2319f301ca762741106dea1bd0 \
-    16976cac176f576871e327d5d2f6fe9d9dfa0666 \
-    f74df278b47b48e798c3de01c922c59b58319d13 \
-    f8786884cde0d2692119a79ac98582fade20fe97
-do
-    grep -F "ref: $revision" "$workflow" >/dev/null ||
-        fail "workflow omits pinned authority revision $revision"
-done
+[ "$(grep -c 'repository: zeppe-lin/libpkgsource, ref: v4.1.0' "$workflow")" -eq 2 ] ||
+    fail 'workflow does not pin libpkgsource v4.1.0 in both matrices'
+[ "$(grep -c 'repository: zeppe-lin/libpkgcatalog, ref: v4.0.0' "$workflow")" -eq 2 ] ||
+    fail 'workflow does not pin libpkgcatalog v4.0.0 in both matrices'
+[ "$(grep -c 'repository: zeppe-lin/libpkgresolve, ref: v4.0.0' "$workflow")" -eq 2 ] ||
+    fail 'workflow does not pin libpkgresolve v4.0.0 in both matrices'
+grep -F 'ref: f74df278b47b48e798c3de01c922c59b58319d13' "$workflow" >/dev/null ||
+    fail 'workflow omits current libpkgstate authority revision'
+! grep -F 'ref: f8786884cde0d2692119a79ac98582fade20fe97' "$workflow" >/dev/null ||
+    fail 'stale resolver-3 authority revision remains'
 for text in \
     'meson install -C "$build/product"' \
     'tests/installed/consumer.cpp' \
