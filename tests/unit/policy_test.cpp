@@ -4,6 +4,8 @@
 
 #include <libpkgbuild/libpkgbuild.h>
 
+#include <optional>
+
 int main()
 {
   const auto environment =
@@ -16,24 +18,48 @@ int main()
   TEST_CHECK(environment.file_creation_mask() == 0027);
   TEST_CHECK(environment.source_date_epoch() == 1700000000);
 
-  const auto changed = pkgbuild::environment_policy::hermetic(9, 0027, 1700000000);
-  TEST_CHECK(environment.identity() != changed.identity());
+  const auto changed_parallelism =
+      pkgbuild::environment_policy::hermetic(9, 0027, 1700000000);
+  const auto changed_mask =
+      pkgbuild::environment_policy::hermetic(8, 0022, 1700000000);
+  const auto changed_epoch =
+      pkgbuild::environment_policy::hermetic(8, 0027, 1700000001);
+  const auto absent_epoch = pkgbuild::environment_policy::hermetic(
+      8, 0027, std::nullopt);
+  TEST_CHECK(environment.identity() != changed_parallelism.identity());
+  TEST_CHECK(environment.identity() != changed_mask.identity());
+  TEST_CHECK(environment.identity() != changed_epoch.identity());
+  TEST_CHECK(environment.identity() != absent_epoch.identity());
+
   const auto build_policy = pkgbuild::build_policy::make(environment);
-  TEST_CHECK(build_policy.output_layout() == pkgbuild::output_layout_kind::package_root);
+  TEST_CHECK(build_policy.output_layout() ==
+             pkgbuild::output_layout_kind::package_root);
   TEST_CHECK(build_policy.environment() == environment);
+  TEST_CHECK(build_policy.identity() !=
+             pkgbuild::build_policy::make(changed_parallelism).identity());
+  TEST_CHECK(build_policy.identity() !=
+             pkgbuild::build_policy::make(changed_mask).identity());
+  TEST_CHECK(build_policy.identity() !=
+             pkgbuild::build_policy::make(changed_epoch).identity());
+  TEST_CHECK(build_policy.identity() !=
+             pkgbuild::build_policy::make(absent_epoch).identity());
 
   TEST_PKGBUILD_THROWS(pkgbuild::error_code::invalid_model,
-                       pkgbuild::environment_policy::hermetic(0));
+                       pkgbuild::environment_policy::hermetic(
+                           0, 0022, std::nullopt));
   TEST_PKGBUILD_THROWS(pkgbuild::error_code::invalid_model,
-                       pkgbuild::environment_policy::hermetic(1, 01000));
+                       pkgbuild::environment_policy::hermetic(
+                           1, 01000, std::nullopt));
   TEST_PKGBUILD_THROWS(pkgbuild::error_code::invalid_model,
-                       pkgbuild::environment_policy::hermetic(1, 0022, -1));
+                       pkgbuild::environment_policy::hermetic(
+                           1, 0022, -1));
 
   TEST_CHECK(pkgbuild::to_string(pkgbuild::input_scope::build) == "build");
   TEST_CHECK(pkgbuild::to_string(pkgbuild::input_scope::check) == "check");
   TEST_CHECK(pkgbuild::to_string(pkgbuild::output_layout_kind::package_root) ==
              "package-root");
-  TEST_CHECK(pkgbuild::to_string(static_cast<pkgbuild::output_layout_kind>(99)) ==
+  TEST_CHECK(pkgbuild::to_string(
+                 static_cast<pkgbuild::output_layout_kind>(99)) ==
              "unknown");
   TEST_PKGBUILD_THROWS(
       pkgbuild::error_code::invalid_request,

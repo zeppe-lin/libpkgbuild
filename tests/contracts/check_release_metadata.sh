@@ -22,14 +22,14 @@ require_dependency_range()
     printf '%s\n' "$block" | grep -F "  version: $range," >/dev/null ||
         fail "$variable does not require $range"
 }
-require "$root/meson.build" "  version: '3.0.1',"
+require "$root/meson.build" "  version: '3.0.2',"
 require_dependency_range libpkgsource_dep libpkgsource "['>=4.0.0', '<5.0.0']"
 require_dependency_range libpkgresolve_dep libpkgresolve "['>=4.0.0', '<5.0.0']"
 require "$root/src/meson.build" "  soversion: '4',"
 require "$root/src/meson.build" 'requires: [libpkgsource_dep, libpkgresolve_dep]'
 require "$root/src/meson.build" 'requires_private: [libcrypto_dep]'
 require "$root/src/meson.build" "gnu_symbol_visibility: 'hidden'"
-require "$root/HISTORY.md" '## 3.0.1'
+require "$root/HISTORY.md" '## 3.0.2'
 require "$root/HISTORY.md" '## 3.0.0'
 require "$root/HISTORY.md" 'Core ABI: libpkgbuild.so.4.'
 require "$root/HISTORY.md" 'libpkgresolve >= 4.0.0, < 5.0.0'

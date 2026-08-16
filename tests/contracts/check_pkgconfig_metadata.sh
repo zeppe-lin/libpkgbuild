@@ -22,7 +22,7 @@ test -n "${metadata:-}" && test -s "$metadata" ||
 name=$(sed -n 's/^Name:[[:space:]]*//p' "$metadata")
 test "$name" = libpkgbuild || fail "module name is '$name'"
 version=$(sed -n 's/^Version:[[:space:]]*//p' "$metadata")
-test "$version" = 3.0.1 || fail "module version is '$version'"
+test "$version" = 3.0.2 || fail "module version is '$version'"
 normalize_requirements()
 {
     sed \

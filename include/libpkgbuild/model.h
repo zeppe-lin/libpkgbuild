@@ -109,8 +109,8 @@ class PKGBUILD_API environment_policy final {
 public:
   [[nodiscard]] static environment_policy hermetic(
       std::uint32_t parallelism,
-      std::uint32_t file_creation_mask = 0022,
-      std::optional<std::int64_t> source_date_epoch = std::nullopt);
+      std::uint32_t file_creation_mask,
+      std::optional<std::int64_t> source_date_epoch);
   [[nodiscard]] locale_policy locale() const noexcept;
   [[nodiscard]] timezone_policy timezone() const noexcept;
   [[nodiscard]] network_policy network() const noexcept;

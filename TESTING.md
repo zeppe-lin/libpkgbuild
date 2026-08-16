@@ -2,7 +2,10 @@
 
 Qualification is separated by evidence role. Unit tests cover build-owned
 identities, closed policy values, payload normalization, artifact authority,
-and refusal of unsupported enum vocabulary. Integration tests compose the real
+and refusal of unsupported enum vocabulary. Policy qualification uses one
+non-default complete witness and independently mutates parallelism, umask, and
+source-date epoch (including epoch absence), requiring every mutation to alter
+both environment and build-policy identity. Integration tests compose the real
 libpkgsource/libpkgcatalog/libpkgstate/libpkgresolve authority chain and exercise
 exact direct input admission, unrestricted and constrained architecture binding,
 request authority and identity, and complete success/failure result semantics.

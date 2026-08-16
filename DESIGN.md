@@ -55,7 +55,10 @@ them as an empty allow-list. The request retains only the selected pair; it does
 not copy the source declaration vectors.
 
 The environment policy is closed and typed: C.UTF-8, UTC, denied network,
-isolated home, parallelism, umask, and optional SOURCE_DATE_EPOCH. The build
+isolated home, parallelism, umask, and optional SOURCE_DATE_EPOCH. Callers
+must name every variable environment dimension when constructing the policy;
+the library does not provide hidden defaults for parallelism, umask, or epoch.
+The build
 policy additionally selects the package-root output layout. Arbitrary ambient
 environment maps are not authority.
 

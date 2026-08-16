@@ -18,6 +18,21 @@ do
     fi
 done
 
+model="$root/include/libpkgbuild/model.h"
+if grep -F 'file_creation_mask = 0022' "$model" >/dev/null || \
+   grep -F 'source_date_epoch = std::nullopt' "$model" >/dev/null; then
+    echo 'environment policy constructor regained hidden caller defaults' >&2
+    exit 1
+fi
+for required in \
+    'std::uint32_t file_creation_mask,' \
+    'std::optional<std::int64_t> source_date_epoch);'; do
+    grep -F "$required" "$model" >/dev/null || {
+        echo "environment policy constructor omits explicit dimension: $required" >&2
+        exit 1
+    }
+done
+
 source_block=$(sed -n '/^libpkgsource_dep = dependency(/,/^)/p' "$root/meson.build")
 printf '%s\n' "$source_block" | grep -F "  'libpkgsource'," >/dev/null
 printf '%s\n' "$source_block" | grep -F "  version: ['>=4.0.0', '<5.0.0']," >/dev/null

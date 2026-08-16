@@ -1,5 +1,13 @@
 # libpkgbuild history
 
+## 3.0.2
+
+* Require callers to name every variable hermetic environment dimension:
+  parallelism, file-creation mask, and optional source-date epoch. Hidden
+  defaults are removed so controller omissions fail at compile time. Policy
+  qualification mutates each dimension independently and requires both the
+  environment identity and enclosing build-policy identity to change.
+
 ## 3.0.1
 
 Authority-provider closure correction.
