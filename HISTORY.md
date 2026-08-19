@@ -1,5 +1,13 @@
 # libpkgbuild history
 
+## 3.0.3
+
+* Bind CHECK input admission to exact membership in an admitted CHECK goal.
+  Source CHECK declarations remain potential authority for transitive BUILD-only
+  selections; they become active only when the resolver seals CHECK authority
+  for that exact selection. Missing active CHECK edges and fabricated dormant
+  CHECK edges continue to fail closed.
+
 ## 3.0.2
 
 * Require callers to name every variable hermetic environment dimension:
