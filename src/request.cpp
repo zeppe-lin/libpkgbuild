@@ -111,12 +111,29 @@ bool allows_architecture(
       std::find(declared.begin(), declared.end(), selected) != declared.end();
 }
 
+bool is_check_goal_member(
+    const pkgresolve::resolution_result& resolution,
+    const pkgresolve::package_selection_identity& subject)
+{
+  for (const auto& goal : resolution.goals()) {
+    if (goal.goal().scope().kind() !=
+        pkgsource::requirement_scope_kind::check)
+      continue;
+    for (const auto& member : goal.members())
+      if (member.selection() == subject)
+        return true;
+  }
+  return false;
+}
+
 std::vector<pkgsource::resolved_requirement> direct_requirements(
-    const pkgsource::source_snapshot& source)
+    const pkgsource::source_snapshot& source, bool include_check)
 {
   auto result = source.recipe().build_requirements();
-  auto checks = source.recipe().check_requirements();
-  result.insert(result.end(), checks.begin(), checks.end());
+  if (include_check) {
+    auto checks = source.recipe().check_requirements();
+    result.insert(result.end(), checks.begin(), checks.end());
+  }
   std::sort(result.begin(), result.end());
   return result;
 }
@@ -207,7 +224,8 @@ build_input_set build_input_set::admit(
   if (subject.architectures() != expected_architectures)
     invalid("build subject architecture context differs from resolution request");
 
-  const auto requirements = direct_requirements(candidate->source());
+  const auto requirements = direct_requirements(
+      candidate->source(), is_check_goal_member(resolution, subject_identity));
   std::vector<build_input> inputs;
   std::set<pkgresolve::requirement_edge_identity> consumed;
   inputs.reserve(requirements.size());

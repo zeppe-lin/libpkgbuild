@@ -24,7 +24,11 @@ retain source authority.
 ## Direct build inputs
 
 The selected source snapshot owns the exact expanded build and check
-requirements. libpkgresolve owns the corresponding requirement edges and
+requirements. Build requirements are active for every constructed selection.
+Check requirements are active only when that exact selection is a member of an
+admitted check goal; a transitive package being built for another package does
+not acquire dormant check authority merely because its recipe declares a check
+program. libpkgresolve owns the corresponding active requirement edges and
 required package selections. libpkgbuild admits the one-to-one relationship
 between those authorities and derives a canonical build_input_set.
 

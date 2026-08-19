@@ -4,10 +4,12 @@ libpkgbuild is the native authority for logical package-build requests and
 build outcomes in Zeppe-Lin.
 
 A build request admits one exact catalog-backed package selection from a sealed
-libpkgresolve result. It derives the source snapshot, direct build/check inputs,
-and selected architectures from that authority, then binds them to a closed
-build policy. Callers cannot reconstruct resolver authority from loose release,
-source, artifact, or filesystem identities.
+libpkgresolve result. It derives the source snapshot, direct build inputs and,
+for an exact resolved check-goal member, direct check inputs from that authority,
+then binds them to a closed build policy. Dormant check declarations on a
+transitive build-only selection are not promoted into resolver authority.
+Callers cannot reconstruct resolver authority from loose release, source,
+artifact, or filesystem identities.
 
 A successful build result binds the request, execution evidence, a complete
 intended payload, and exact artifact bytes. A failed result binds the request,
